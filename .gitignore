@@ -1,0 +1,25 @@
+# Rust
+/target/
+/backend/target/
+
+# Node
+/node_modules/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+/backend/uploads/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
