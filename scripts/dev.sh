@@ -2,16 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/common.sh"
+
 BACKEND_PORT="${PORT:-8080}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 DATABASE_URL="${DATABASE_URL:-sqlite://$ROOT_DIR/backend/letsorder.db?mode=rwc}"
-
-require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1" >&2
-    exit 1
-  fi
-}
 
 cleanup() {
   if [[ -n "${BACKEND_PID:-}" ]]; then
@@ -26,6 +21,9 @@ trap cleanup EXIT INT TERM
 
 require_command cargo
 require_command npm
+
+stop_process_on_port "$BACKEND_PORT" "backend"
+stop_process_on_port "$FRONTEND_PORT" "frontend"
 
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   echo "Installing frontend dependencies..."

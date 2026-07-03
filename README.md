@@ -325,11 +325,15 @@ Default local URLs:
 
 The script installs frontend dependencies when `frontend/node_modules` is missing. Press `Ctrl+C` to stop both servers.
 
+Before starting, the script checks the configured backend and frontend ports and stops stale LetsOrder processes that are still listening there. This avoids accidentally talking to an older backend after code changes.
+
 ### Start Backend Only
 
 ```bash
 ./scripts/backend.sh
 ```
+
+This stops any stale process already listening on the backend port before starting a new backend.
 
 Optional overrides:
 
@@ -344,6 +348,8 @@ PORT=18080 DATABASE_URL="sqlite:///tmp/letsorder.db?mode=rwc" ./scripts/backend.
 ```
 
 The frontend dev server listens on `http://localhost:5173` and proxies backend data requests such as `/api/gatherings` and `/api/menu-items`.
+
+This stops any stale process already listening on the frontend port before starting a new frontend dev server.
 
 Optional override:
 
