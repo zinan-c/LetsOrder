@@ -1,29 +1,123 @@
-import { useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { getGatheringByInviteCode } from '../api/gatherings';
+import {
+  createMenuItem,
+  listMenuItems,
+  updateMenuItem,
+} from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import GatheringSummary from '../components/GatheringSummary';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import { mockMenuItems } from '../data/mockGathering';
-import type { MenuItem } from '../types/menu';
+import type { MenuItem, MenuItemStatus } from '../types/menu';
+
+function participantStorageKey(inviteCode?: string) {
+  return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
+}
+
+function createLocalMenuItem(
+  formData: FormData,
+  inviteCode?: string,
+  editingItem?: MenuItem | null,
+): MenuItem {
+  const now = new Date().toISOString();
+  const quantity = Number(formData.get('quantity') || 1);
+
+  return {
+    id: editingItem?.id ?? `local-${crypto.randomUUID()}`,
+    gathering_id: editingItem?.gathering_id ?? `local-${inviteCode ?? 'gathering'}`,
+    created_by: editingItem?.created_by ?? 'local-participant',
+    updated_by: editingItem ? 'local-participant' : null,
+    name: String(formData.get('name') ?? '').trim(),
+    category: String(formData.get('category') ?? '').trim() || null,
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+    unit: String(formData.get('unit') ?? '').trim() || null,
+    owner_name: String(formData.get('owner_name') ?? '').trim() || null,
+    note: String(formData.get('note') ?? '').trim() || null,
+    status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+    created_at: editingItem?.created_at ?? now,
+    updated_at: now,
+  };
+}
 
 export default function GatheringPage() {
   const { inviteCode } = useParams();
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const activeItems = mockMenuItems.filter((item) => item.status !== 'cancelled');
-  const cancelledItems = mockMenuItems.filter(
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
+  const [gatheringId, setGatheringId] = useState<string | null>(null);
+  const [participantId, setParticipantId] = useState<string | null>(() =>
+    localStorage.getItem(participantStorageKey(inviteCode)),
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const activeItems = menuItems.filter((item) => item.status !== 'cancelled');
+  const cancelledItems = menuItems.filter(
     (item) => item.status === 'cancelled',
   );
   const isEditing = Boolean(editingItem);
+  const canUseApi = Boolean(gatheringId && participantId);
+
+  useEffect(() => {
+    if (!inviteCode) {
+      return;
+    }
+
+    const currentInviteCode = inviteCode;
+    let ignore = false;
+
+    async function loadMenuItems() {
+      try {
+        const gatheringResponse = await getGatheringByInviteCode(currentInviteCode);
+        if (ignore) {
+          return;
+        }
+
+        setGatheringId(gatheringResponse.gathering.id);
+
+        const storedParticipantId = localStorage.getItem(
+          participantStorageKey(currentInviteCode),
+        );
+        setParticipantId(storedParticipantId);
+
+        const menuResponse = await listMenuItems(gatheringResponse.gathering.id);
+        if (!ignore) {
+          setMenuItems(menuResponse.menu_items);
+        }
+      } catch {
+        if (!ignore) {
+          setGatheringId(null);
+          setMenuItems(mockMenuItems);
+        }
+      }
+    }
+
+    loadMenuItems();
+
+    return () => {
+      ignore = true;
+    };
+  }, [inviteCode]);
+
+  const editorModeLabel = useMemo(() => {
+    if (canUseApi) {
+      return 'Connected to API';
+    }
+
+    return 'Local prototype mode';
+  }, [canUseApi]);
 
   function openAddDish() {
     setEditingItem(null);
+    setSaveError(null);
     setIsEditorOpen(true);
   }
 
   function openEditDish(item: MenuItem) {
     setEditingItem(item);
+    setSaveError(null);
     setIsEditorOpen(true);
   }
 
@@ -31,6 +125,77 @@ export default function GatheringPage() {
     setIsEditorOpen(false);
     setEditingItem(null);
   }
+
+  async function handleSaveMenuItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
+    const name = String(formData.get('name') ?? '').trim();
+
+    if (!name) {
+      setSaveError('Dish name is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      if (canUseApi && gatheringId && participantId) {
+        if (editingItem) {
+          const response = await updateMenuItem(editingItem.id, {
+            updated_by: participantId,
+            name,
+            category: String(formData.get('category') ?? '').trim(),
+            quantity: Number(formData.get('quantity') || 1),
+            unit: String(formData.get('unit') ?? '').trim(),
+            owner_name: String(formData.get('owner_name') ?? '').trim(),
+            note: String(formData.get('note') ?? '').trim(),
+            status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+          });
+
+          setMenuItems((items) =>
+            items.map((item) =>
+              item.id === response.menu_item.id ? response.menu_item : item,
+            ),
+          );
+        } else {
+          const response = await createMenuItem(gatheringId, {
+            created_by: participantId,
+            name,
+            category: String(formData.get('category') ?? '').trim(),
+            quantity: Number(formData.get('quantity') || 1),
+            unit: String(formData.get('unit') ?? '').trim(),
+            owner_name: String(formData.get('owner_name') ?? '').trim(),
+            note: String(formData.get('note') ?? '').trim(),
+            status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+          });
+
+          setMenuItems((items) => [...items, response.menu_item]);
+        }
+      } else {
+        const localItem = createLocalMenuItem(formData, inviteCode, editingItem);
+
+        if (editingItem) {
+          setMenuItems((items) =>
+            items.map((item) => (item.id === editingItem.id ? localItem : item)),
+          );
+        } else {
+          setMenuItems((items) => [...items, localItem]);
+        }
+      }
+
+      closeEditor();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : 'Failed to save menu item.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const editorTitle = isEditing ? 'Update this dish' : 'Add a new dish';
 
   return (
     <div className="workspace-grid">
@@ -53,6 +218,9 @@ export default function GatheringPage() {
           <StatusPill>All</StatusPill>
           <StatusPill tone="green">Prepared</StatusPill>
           <StatusPill tone="red">Cancelled</StatusPill>
+          <StatusPill tone={canUseApi ? 'green' : 'neutral'}>
+            {editorModeLabel}
+          </StatusPill>
           <span className="toolbar-note">Menu editing locks tomorrow at 6 PM</span>
         </div>
 
@@ -77,97 +245,123 @@ export default function GatheringPage() {
 
       <aside className="sticky-side">
         <GatheringSummary />
-        <div className={`edit-drawer-preview ${isEditorOpen ? 'is-open' : ''}`}>
-          <div className="panel-header">
-            <div>
-              <p className="card-kicker">
-                {isEditorOpen ? 'Dish editor' : 'Editor preview'}
-              </p>
-              <h2>
-                {isEditorOpen
-                  ? isEditing
-                    ? 'Update this dish'
-                    : 'Add a new dish'
-                  : 'Click Add dish to start'}
-              </h2>
-            </div>
-            {isEditorOpen ? (
-              <button className="icon-button" type="button" onClick={closeEditor}>
-                ×
-              </button>
-            ) : null}
-          </div>
-          {!isEditorOpen ? (
-            <p className="dish-note">
-              The form opens here in the prototype. Later this becomes a real
-              drawer backed by the API.
-            </p>
-          ) : null}
-          <label>
-            Dish name
-            <input
-              key={`name-${editingItem?.id ?? 'new'}`}
-              placeholder="Crispy tofu"
-              defaultValue={editingItem?.name ?? ''}
-              disabled={!isEditorOpen}
-            />
-          </label>
-          <div className="split-fields">
-            <label>
-              Qty
-              <input
-                key={`quantity-${editingItem?.id ?? 'new'}`}
-                placeholder="2"
-                defaultValue={editingItem?.quantity ?? ''}
-                disabled={!isEditorOpen}
-              />
-            </label>
-            <label>
-              Unit
-              <input
-                key={`unit-${editingItem?.id ?? 'new'}`}
-                placeholder="plates"
-                defaultValue={editingItem?.unit ?? ''}
-                disabled={!isEditorOpen}
-              />
-            </label>
-          </div>
-          <label>
-            Status
-            <select
-              key={`status-${editingItem?.id ?? 'new'}`}
-              defaultValue={editingItem?.status ?? 'planned'}
-              disabled={!isEditorOpen}
-            >
-              <option value="planned">Planned</option>
-              <option value="prepared">Prepared</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
-          <label>
-            Notes
-            <textarea
-              key={`note-${editingItem?.id ?? 'new'}`}
-              placeholder="Any prep details?"
-              defaultValue={editingItem?.note ?? ''}
-              disabled={!isEditorOpen}
-            />
-          </label>
-          <div className="action-row">
-            <button disabled={!isEditorOpen} type="button">
-              {isEditing ? 'Save changes' : 'Add to menu'}
-            </button>
-            {isEditorOpen ? (
-              <button className="ghost-button" type="button" onClick={closeEditor}>
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        </div>
         <Link className="button-link secondary full-width" to={`/g/${inviteCode}/review`}>
           Open review
         </Link>
       </aside>
+
+      {isEditorOpen ? (
+        <div className="modal-overlay" role="presentation" onClick={closeEditor}>
+          <form
+            aria-modal="true"
+            className="dish-editor-modal"
+            role="dialog"
+            aria-labelledby="dish-editor-title"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={handleSaveMenuItem}
+          >
+            <div className="panel-header">
+              <div>
+                <p className="card-kicker">Dish editor</p>
+                <h2 id="dish-editor-title">{editorTitle}</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={closeEditor}>
+                ×
+              </button>
+            </div>
+
+            <label>
+              Dish name
+              <input
+                key={`name-${editingItem?.id ?? 'new'}`}
+                autoFocus
+                name="name"
+                placeholder="Crispy tofu"
+                defaultValue={editingItem?.name ?? ''}
+              />
+            </label>
+
+            <label>
+              Category
+              <input
+                key={`category-${editingItem?.id ?? 'new'}`}
+                name="category"
+                placeholder="Snack"
+                defaultValue={editingItem?.category ?? ''}
+              />
+            </label>
+
+            <div className="split-fields">
+              <label>
+                Qty
+                <input
+                  key={`quantity-${editingItem?.id ?? 'new'}`}
+                  name="quantity"
+                  placeholder="2"
+                  defaultValue={editingItem?.quantity ?? ''}
+                />
+              </label>
+              <label>
+                Unit
+                <input
+                  key={`unit-${editingItem?.id ?? 'new'}`}
+                  name="unit"
+                  placeholder="plates"
+                  defaultValue={editingItem?.unit ?? ''}
+                />
+              </label>
+            </div>
+
+            <label>
+              Status
+              <select
+                key={`status-${editingItem?.id ?? 'new'}`}
+                name="status"
+                defaultValue={editingItem?.status ?? 'planned'}
+              >
+                <option value="planned">Planned</option>
+                <option value="prepared">Prepared</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+
+            <label>
+              Owner
+              <input
+                key={`owner-${editingItem?.id ?? 'new'}`}
+                name="owner_name"
+                placeholder="Aunt May"
+                defaultValue={editingItem?.owner_name ?? ''}
+              />
+            </label>
+
+            <label>
+              Notes
+              <textarea
+                key={`note-${editingItem?.id ?? 'new'}`}
+                name="note"
+                placeholder="Any prep details?"
+                defaultValue={editingItem?.note ?? ''}
+              />
+            </label>
+
+            {saveError ? <p className="error">{saveError}</p> : null}
+
+            <div className="action-row modal-actions">
+              <button disabled={isSaving} type="submit">
+                {isSaving
+                  ? 'Saving...'
+                  : isEditing
+                    ? 'Save changes'
+                    : 'Add to menu'}
+              </button>
+              <button className="ghost-button" type="button" onClick={closeEditor}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

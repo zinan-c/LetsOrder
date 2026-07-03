@@ -17,6 +17,16 @@ export default function CreateGatheringPage() {
 
   const mutation = useMutation({
     mutationFn: createGathering,
+    onSuccess: (response) => {
+      localStorage.setItem(
+        `letsorder:${response.gathering.invite_code}:participant_id`,
+        response.host.id,
+      );
+      localStorage.setItem(
+        `letsorder:${response.gathering.invite_code}:access_token`,
+        response.access_token,
+      );
+    },
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
