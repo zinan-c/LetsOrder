@@ -42,15 +42,15 @@ export default function GatheringSummary({
         </div>
         <div>
           <dt>Invite</dt>
-          <dd>{inviteCode ? `/api/menu/${inviteCode}` : 'Not ready'}</dd>
+          <dd>{inviteCode ? `/menu/${inviteCode}` : 'Not ready'}</dd>
         </div>
       </dl>
       {inviteCode ? (
         <div className="summary-actions">
-          <Link className="button-link secondary" to={`/api/host/${inviteCode}`}>
+          <Link className="button-link secondary" to={`/host/${inviteCode}`}>
             Host controls
           </Link>
-          <Link className="button-link secondary" to={`/api/review/${inviteCode}`}>
+          <Link className="button-link secondary" to={`/review/${inviteCode}`}>
             Review
           </Link>
         </div>

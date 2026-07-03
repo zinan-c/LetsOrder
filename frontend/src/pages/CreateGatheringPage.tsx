@@ -41,7 +41,7 @@ export default function CreateGatheringPage() {
   }
 
   const inviteUrl = mutation.data
-    ? `${window.location.origin}/api/menu/${mutation.data.gathering.invite_code}`
+    ? `${window.location.origin}/menu/${mutation.data.gathering.invite_code}`
     : null;
 
   return (
@@ -111,7 +111,7 @@ export default function CreateGatheringPage() {
               <a className="button-link secondary" href={inviteUrl}>
                 Open menu
               </a>
-              <Link className="button-link secondary" to="/api/menus">
+              <Link className="button-link secondary" to="/menus">
                 View menus
               </Link>
             </div>

@@ -40,7 +40,7 @@ export default function MenusPage() {
           <Link
             className="menu-list-row"
             key={menu.id}
-            to={`/api/menu/${menu.invite_code}`}
+            to={`/menu/${menu.invite_code}`}
           >
             <div>
               <p className="card-kicker">

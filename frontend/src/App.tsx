@@ -14,17 +14,17 @@ export default function App() {
         </Link>
         <nav>
           <Link to="/">Create</Link>
-          <Link to="/api/menus">Menus</Link>
+          <Link to="/menus">Menus</Link>
         </nav>
       </header>
 
       <main>
         <Routes>
           <Route path="/" element={<CreateGatheringPage />} />
-          <Route path="/api/menus" element={<MenusPage />} />
-          <Route path="/api/menu/:inviteCode" element={<GatheringPage />} />
-          <Route path="/api/host/:inviteCode" element={<HostDashboardPage />} />
-          <Route path="/api/review/:inviteCode" element={<ReviewPage />} />
+          <Route path="/menus" element={<MenusPage />} />
+          <Route path="/menu/:inviteCode" element={<GatheringPage />} />
+          <Route path="/host/:inviteCode" element={<HostDashboardPage />} />
+          <Route path="/review/:inviteCode" element={<ReviewPage />} />
         </Routes>
       </main>
     </div>

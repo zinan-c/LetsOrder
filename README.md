@@ -118,7 +118,7 @@ Host opens create page
 ### 2. Participant Joins by URL
 
 ```text
-Participant opens /api/menu/:inviteCode
+Participant opens /menu/:inviteCode
   -> frontend loads gathering summary
   -> participant enters display name
   -> backend creates participant

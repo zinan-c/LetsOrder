@@ -68,7 +68,7 @@ export default function InviteLandingPage() {
             />
           </label>
           {canEnterMenu ? (
-            <Link className="button-link" to={`/api/menu/${inviteCode}`}>
+            <Link className="button-link" to={`/menu/${inviteCode}`}>
               {gatheringQuery.isError ? 'Enter prototype menu' : 'Enter menu'}
             </Link>
           ) : (

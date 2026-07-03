@@ -9,7 +9,7 @@ import {
 
 export default function HostDashboardPage() {
   const { inviteCode } = useParams();
-  const inviteUrl = `${window.location.origin}/api/menu/${inviteCode}`;
+  const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
 
   return (
     <div className="dashboard-grid">
@@ -23,7 +23,7 @@ export default function HostDashboardPage() {
           <a href={inviteUrl}>{inviteUrl}</a>
           <div className="action-row">
             <button type="button">Copy invite</button>
-            <Link className="button-link secondary" to={`/api/menu/${inviteCode}`}>
+            <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
               Preview invite
             </Link>
           </div>
