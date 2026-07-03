@@ -309,28 +309,55 @@ README.md
 
 ## Getting Started
 
-### Backend
+### Start Everything
+
+Run the backend and frontend together:
 
 ```bash
-cd backend
-DATABASE_URL="sqlite://letsorder.db?mode=rwc" cargo run
+./scripts/dev.sh
 ```
 
-The backend listens on `http://localhost:8080` by default. Check it with:
+Default local URLs:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8080`
+- Health check: `http://localhost:8080/health`
+
+The script installs frontend dependencies when `frontend/node_modules` is missing. Press `Ctrl+C` to stop both servers.
+
+### Start Backend Only
 
 ```bash
-curl http://localhost:8080/health
+./scripts/backend.sh
 ```
 
-### Frontend
+Optional overrides:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+PORT=18080 DATABASE_URL="sqlite:///tmp/letsorder.db?mode=rwc" ./scripts/backend.sh
+```
+
+### Start Frontend Only
+
+```bash
+./scripts/frontend.sh
 ```
 
 The frontend dev server listens on `http://localhost:5173` and proxies `/api` requests to the backend.
+
+Optional override:
+
+```bash
+FRONTEND_PORT=5174 ./scripts/frontend.sh
+```
+
+### Run Checks
+
+```bash
+./scripts/check.sh
+```
+
+This runs `cargo fmt --all --check`, `cargo check`, and `npm run build`.
 
 ## MVP Milestones
 
