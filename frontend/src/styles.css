@@ -572,7 +572,8 @@ h1 {
 
 .menu-list-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: 1.5rem;
   padding: 1.25rem;
   border: 1px solid #fed7aa;
@@ -601,6 +602,37 @@ h1 {
 
 .menu-list-meta strong {
   color: #292524;
+}
+
+.menu-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.confirm-modal {
+  display: grid;
+  width: min(460px, 100%);
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 1px solid #fed7aa;
+  border-radius: 1.5rem;
+  background: #fffaf3;
+  box-shadow: 0 30px 90px rgba(67, 20, 7, 0.28);
+}
+
+.confirm-modal h2,
+.confirm-modal p {
+  margin: 0;
+}
+
+.confirm-modal h2 {
+  color: #7c2d12;
+}
+
+.confirm-modal p {
+  color: #57534e;
+  line-height: 1.6;
 }
 
 .control-grid {

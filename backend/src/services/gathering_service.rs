@@ -125,6 +125,7 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
         FROM gatherings g
         LEFT JOIN menu_items m ON m.gathering_id = g.id
         LEFT JOIN participants p ON p.gathering_id = g.id
+        WHERE g.status != 'archived'
         GROUP BY g.id
         ORDER BY g.created_at DESC
         "#,
@@ -133,6 +134,38 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
     .await?;
 
     Ok(rows)
+}
+
+pub async fn archive_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE gatherings
+        SET status = 'archived', archived_at = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(now)
+    .bind(now)
+    .bind(gathering_id)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        None,
+        "gathering_archived",
+        "gathering",
+        Some(gathering_id),
+        None,
+    )
+    .await?;
+
+    get_gathering_by_id(pool, gathering_id).await
 }
 
 pub async fn join_gathering(

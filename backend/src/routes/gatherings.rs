@@ -15,7 +15,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gatherings).post(create_gathering))
-        .route("/{invite_code}", get(get_gathering))
+        .route("/{identifier}", get(get_gathering).delete(delete_gathering))
         .route(
             "/{gathering_id}/participants",
             post(join_gathering).get(list_participants),
@@ -45,6 +45,14 @@ async fn get_gathering(
 ) -> AppResult<Json<serde_json::Value>> {
     let gathering =
         gathering_service::get_gathering_by_invite_code(&state.pool, &invite_code).await?;
+    Ok(Json(serde_json::json!({ "gathering": gathering })))
+}
+
+async fn delete_gathering(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let gathering = gathering_service::archive_gathering(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 

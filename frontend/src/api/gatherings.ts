@@ -49,6 +49,12 @@ export function getGatheringByInviteCode(inviteCode: string) {
   return apiRequest<GetGatheringResponse>(`/api/gatherings/${inviteCode}`);
 }
 
+export function deleteGathering(gatheringId: string) {
+  return apiRequest<GetGatheringResponse>(`/api/gatherings/${gatheringId}`, {
+    method: 'DELETE',
+  });
+}
+
 export function joinGathering(gatheringId: string, displayName: string) {
   return apiRequest<JoinGatheringResponse>(
     `/api/gatherings/${gatheringId}/participants`,
