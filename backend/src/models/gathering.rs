@@ -9,6 +9,7 @@ pub struct Gathering {
     pub description: Option<String>,
     pub invite_code: String,
     pub status: String,
+    pub is_locked: bool,
     pub starts_at: Option<DateTime<Utc>>,
     pub expires_at: DateTime<Utc>,
     pub locked_at: Option<DateTime<Utc>>,
@@ -24,6 +25,7 @@ pub struct GatheringListItem {
     pub description: Option<String>,
     pub invite_code: String,
     pub status: String,
+    pub is_locked: bool,
     pub expires_at: DateTime<Utc>,
     pub item_count: i64,
     pub prepared_count: i64,
@@ -54,6 +56,7 @@ pub struct Participant {
     pub gathering_id: Uuid,
     pub display_name: String,
     pub role: String,
+    pub last_menu_activity_at: Option<DateTime<Utc>>,
     pub joined_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -109,4 +112,17 @@ pub struct UpdateMenuItemRequest {
     pub owner_name: Option<String>,
     pub note: Option<String>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ActivityLog {
+    pub id: Uuid,
+    pub gathering_id: Uuid,
+    pub actor_id: Option<Uuid>,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub target_type: String,
+    pub target_id: Option<Uuid>,
+    pub detail: Option<String>,
+    pub created_at: DateTime<Utc>,
 }

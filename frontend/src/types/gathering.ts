@@ -6,6 +6,7 @@ export interface Gathering {
   description?: string | null;
   invite_code: string;
   status: GatheringStatus;
+  is_locked: boolean;
   starts_at?: string | null;
   expires_at: string;
   locked_at?: string | null;
@@ -20,6 +21,7 @@ export interface GatheringListItem {
   description?: string | null;
   invite_code: string;
   status: GatheringStatus;
+  is_locked: boolean;
   expires_at: string;
   item_count: number;
   prepared_count: number;
@@ -34,4 +36,27 @@ export interface CreateGatheringRequest {
   host_name: string;
   starts_at?: string;
   expires_at: string;
+}
+
+export interface Participant {
+  id: string;
+  gathering_id: string;
+  display_name: string;
+  role: string;
+  last_menu_activity_at?: string | null;
+  joined_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  gathering_id: string;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  action: string;
+  target_type: string;
+  target_id?: string | null;
+  detail?: string | null;
+  created_at: string;
 }

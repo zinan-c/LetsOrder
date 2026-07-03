@@ -32,9 +32,9 @@ pub async fn create_gathering(
     sqlx::query(
         r#"
         INSERT INTO gatherings (
-            id, title, description, invite_code, status, starts_at, expires_at, created_at, updated_at
+            id, title, description, invite_code, status, is_locked, starts_at, expires_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?)
         "#,
     )
     .bind(gathering_id)
@@ -94,7 +94,7 @@ pub async fn get_gathering_by_invite_code(
     let gathering = sqlx::query_as::<_, Gathering>(
         r#"
         SELECT id, title, description, invite_code, status, starts_at, expires_at,
-               locked_at, archived_at, created_at, updated_at
+               is_locked, locked_at, archived_at, created_at, updated_at
         FROM gatherings
         WHERE invite_code = ?
         "#,
@@ -116,6 +116,7 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
             g.description,
             g.invite_code,
             g.status,
+            g.is_locked,
             g.expires_at,
             COUNT(DISTINCT m.id) AS item_count,
             COUNT(DISTINCT CASE WHEN m.status = 'prepared' THEN m.id END) AS prepared_count,
@@ -223,10 +224,11 @@ pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<V
 
     let participants = sqlx::query_as::<_, Participant>(
         r#"
-        SELECT id, gathering_id, display_name, role, joined_at, created_at, updated_at
+        SELECT id, gathering_id, display_name, role, last_menu_activity_at,
+               joined_at, created_at, updated_at
         FROM participants
         WHERE gathering_id = ?
-        ORDER BY joined_at ASC
+        ORDER BY COALESCE(last_menu_activity_at, joined_at) DESC
         "#,
     )
     .bind(gathering_id)
@@ -307,6 +309,7 @@ pub async fn create_menu_item(
         None,
     )
     .await?;
+    touch_participant_menu_activity(pool, payload.created_by).await?;
 
     get_menu_item_by_id(pool, menu_item_id).await
 }
@@ -387,15 +390,79 @@ pub async fn update_menu_item(
         None,
     )
     .await?;
+    touch_participant_menu_activity(pool, payload.updated_by).await?;
 
     get_menu_item_by_id(pool, menu_item_id).await
+}
+
+pub async fn lock_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE gatherings
+        SET status = 'locked', is_locked = 1, locked_at = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(now)
+    .bind(now)
+    .bind(gathering_id)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        None,
+        "gathering_locked",
+        "gathering",
+        Some(gathering_id),
+        None,
+    )
+    .await?;
+
+    get_gathering_by_id(pool, gathering_id).await
+}
+
+pub async fn list_activity_logs(
+    pool: &DbPool,
+    gathering_id: Uuid,
+) -> AppResult<Vec<crate::models::ActivityLog>> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let logs = sqlx::query_as::<_, crate::models::ActivityLog>(
+        r#"
+        SELECT
+            a.id,
+            a.gathering_id,
+            a.actor_id,
+            p.display_name AS actor_name,
+            a.action,
+            a.target_type,
+            a.target_id,
+            a.detail,
+            a.created_at
+        FROM activity_logs a
+        LEFT JOIN participants p ON p.id = a.actor_id
+        WHERE a.gathering_id = ?
+        ORDER BY a.created_at DESC
+        "#,
+    )
+    .bind(gathering_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(logs)
 }
 
 async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
     sqlx::query_as::<_, Gathering>(
         r#"
         SELECT id, title, description, invite_code, status, starts_at, expires_at,
-               locked_at, archived_at, created_at, updated_at
+               is_locked, locked_at, archived_at, created_at, updated_at
         FROM gatherings
         WHERE id = ?
         "#,
@@ -409,7 +476,8 @@ async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gat
 async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult<Participant> {
     sqlx::query_as::<_, Participant>(
         r#"
-        SELECT id, gathering_id, display_name, role, joined_at, created_at, updated_at
+        SELECT id, gathering_id, display_name, role, last_menu_activity_at,
+               joined_at, created_at, updated_at
         FROM participants
         WHERE id = ?
         "#,
@@ -463,7 +531,7 @@ async fn ensure_gathering_editable(pool: &DbPool, gathering_id: Uuid) -> AppResu
     let gathering =
         sync_expired_gathering(pool, get_gathering_by_id(pool, gathering_id).await?).await?;
 
-    if gathering.status != "active" {
+    if gathering.status != "active" || gathering.is_locked {
         return Err(AppError::Forbidden);
     }
 
@@ -477,7 +545,7 @@ async fn sync_expired_gathering(pool: &DbPool, gathering: Gathering) -> AppResul
         sqlx::query(
             r#"
             UPDATE gatherings
-            SET status = 'locked', locked_at = ?, updated_at = ?
+            SET status = 'locked', is_locked = 1, locked_at = ?, updated_at = ?
             WHERE id = ? AND status = 'active'
             "#,
         )
@@ -518,6 +586,23 @@ async fn insert_activity_log(
     .bind(target_id)
     .bind(detail)
     .bind(Utc::now())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn touch_participant_menu_activity(pool: &DbPool, participant_id: Uuid) -> AppResult<()> {
+    sqlx::query(
+        r#"
+        UPDATE participants
+        SET last_menu_activity_at = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(Utc::now())
+    .bind(Utc::now())
+    .bind(participant_id)
     .execute(pool)
     .await?;
 

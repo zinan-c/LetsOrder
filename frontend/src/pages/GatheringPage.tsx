@@ -17,6 +17,17 @@ function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
 }
 
+function formatDateTime(value?: string) {
+  if (!value) {
+    return 'Not set';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
 const categoryOptions = [
   'Main',
   'Protein',
@@ -165,12 +176,20 @@ export default function GatheringPage() {
   }, [canUseApi]);
 
   function openAddDish() {
+    if (isCurrentMenuLocked) {
+      return;
+    }
+
     setEditingItem(null);
     setSaveError(null);
     setIsEditorOpen(true);
   }
 
   function openEditDish(item: MenuItem) {
+    if (isCurrentMenuLocked) {
+      return;
+    }
+
     setEditingItem(item);
     setSaveError(null);
     setIsEditorOpen(true);
@@ -257,6 +276,7 @@ export default function GatheringPage() {
   const currentExpiresAt = currentGathering?.expires_at ?? mockGathering.expiresAt;
   const currentInviteCode =
     currentGathering?.invite_code ?? inviteCode ?? mockGathering.inviteCode;
+  const isCurrentMenuLocked = currentGathering?.is_locked ?? false;
 
   return (
     <div className="menu-workspace">
@@ -270,8 +290,12 @@ export default function GatheringPage() {
               it locks.
             </p>
           </div>
-          <button type="button" onClick={openAddDish}>
-            Add dish
+          <button
+            disabled={isCurrentMenuLocked}
+            type="button"
+            onClick={openAddDish}
+          >
+            {isCurrentMenuLocked ? 'Menu locked' : 'Add dish'}
           </button>
         </div>
 
@@ -280,6 +304,7 @@ export default function GatheringPage() {
           description={currentDescription}
           inviteCode={currentInviteCode}
           expiresAt={currentExpiresAt}
+          isLocked={isCurrentMenuLocked}
           participantCount={
             currentGathering ? undefined : mockGathering.participantCount
           }
@@ -303,12 +328,21 @@ export default function GatheringPage() {
               <option value="cancelled">Cancelled</option>
             </select>
           </label>
-          <span className="toolbar-note">Menu editing locks tomorrow at 6 PM</span>
+          <span className="toolbar-note">
+            {isCurrentMenuLocked
+              ? 'Menu editing is locked'
+              : `Menu locks ${formatDateTime(currentExpiresAt)}`}
+          </span>
         </div>
 
         <div className="dish-list">
           {sortedMenuItems.map((item) => (
-            <DishCard item={item} key={item.id} onEdit={openEditDish} />
+            <DishCard
+              item={item}
+              key={item.id}
+              readOnly={isCurrentMenuLocked}
+              onEdit={openEditDish}
+            />
           ))}
         </div>
       </section>

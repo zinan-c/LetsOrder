@@ -16,6 +16,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gatherings).post(create_gathering))
         .route("/{identifier}", get(get_gathering).delete(delete_gathering))
+        .route("/{gathering_id}/lock", post(lock_gathering))
+        .route("/{gathering_id}/activity-logs", get(list_activity_logs))
         .route(
             "/{gathering_id}/participants",
             post(join_gathering).get(list_participants),
@@ -56,6 +58,14 @@ async fn delete_gathering(
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
+async fn lock_gathering(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let gathering = gathering_service::lock_gathering(&state.pool, gathering_id).await?;
+    Ok(Json(serde_json::json!({ "gathering": gathering })))
+}
+
 async fn join_gathering(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
@@ -71,6 +81,14 @@ async fn list_participants(
 ) -> AppResult<Json<serde_json::Value>> {
     let participants = gathering_service::list_participants(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "participants": participants })))
+}
+
+async fn list_activity_logs(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let activity_logs = gathering_service::list_activity_logs(&state.pool, gathering_id).await?;
+    Ok(Json(serde_json::json!({ "activity_logs": activity_logs })))
 }
 
 async fn list_menu_items(

@@ -14,6 +14,7 @@ const fallbackMenus: GatheringListItem[] = [
     description: mockGathering.description,
     invite_code: mockGathering.inviteCode,
     status: 'active',
+    is_locked: false,
     expires_at: mockGathering.expiresAt,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

@@ -6,6 +6,7 @@ interface GatheringSummaryProps {
   description?: string | null;
   inviteCode?: string;
   expiresAt?: string;
+  isLocked?: boolean;
   participantCount?: number;
 }
 
@@ -25,6 +26,7 @@ export default function GatheringSummary({
   description,
   inviteCode,
   expiresAt,
+  isLocked = false,
   participantCount,
 }: GatheringSummaryProps) {
   return (
@@ -50,9 +52,11 @@ export default function GatheringSummary({
           <Link className="button-link secondary" to={`/host/${inviteCode}`}>
             Host controls
           </Link>
-          <Link className="button-link secondary" to={`/review/${inviteCode}`}>
-            Review
-          </Link>
+          {isLocked ? (
+            <Link className="button-link secondary" to={`/review/${inviteCode}`}>
+              Review
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </aside>
