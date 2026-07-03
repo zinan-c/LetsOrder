@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { createGathering } from '../api/gatherings';
-import GatheringSummary from '../components/GatheringSummary';
 import PageCard from '../components/PageCard';
 
 function defaultExpiry() {
@@ -13,6 +13,7 @@ function defaultExpiry() {
 export default function CreateGatheringPage() {
   const [title, setTitle] = useState('');
   const [hostName, setHostName] = useState('');
+  const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
 
   const mutation = useMutation({
@@ -33,17 +34,18 @@ export default function CreateGatheringPage() {
     event.preventDefault();
     mutation.mutate({
       title,
+      description,
       host_name: hostName,
       expires_at: new Date(expiresAt).toISOString(),
     });
   }
 
   const inviteUrl = mutation.data
-    ? `${window.location.origin}/g/${mutation.data.gathering.invite_code}`
+    ? `${window.location.origin}/api/menu/${mutation.data.gathering.invite_code}`
     : null;
 
   return (
-    <div className="two-column">
+    <div>
       <PageCard
         eyebrow="Family gathering menu"
         title="Create a shared menu space"
@@ -82,7 +84,11 @@ export default function CreateGatheringPage() {
 
           <label>
             Description
-            <textarea placeholder="Tell people what kind of meal this is." />
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Tell people what kind of meal this is."
+            />
           </label>
 
           <button disabled={mutation.isPending} type="submit">
@@ -103,13 +109,15 @@ export default function CreateGatheringPage() {
             <div className="action-row">
               <button type="button">Copy link</button>
               <a className="button-link secondary" href={inviteUrl}>
-                Preview invite
+                Open menu
               </a>
+              <Link className="button-link secondary" to="/api/menus">
+                View menus
+              </Link>
             </div>
           </div>
         ) : null}
       </PageCard>
-      <GatheringSummary />
     </div>
   );
 }

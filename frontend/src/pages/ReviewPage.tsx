@@ -16,7 +16,7 @@ export default function ReviewPage() {
       >
         <div className="action-row">
           <StatusPill tone="neutral">Read-only menu</StatusPill>
-          <Link className="button-link secondary" to={`/g/${inviteCode}/menu`}>
+          <Link className="button-link secondary" to={`/api/menu/${inviteCode}`}>
             Back to menu
           </Link>
         </div>

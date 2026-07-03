@@ -14,6 +14,20 @@ export interface Gathering {
   updated_at: string;
 }
 
+export interface GatheringListItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  invite_code: string;
+  status: GatheringStatus;
+  expires_at: string;
+  item_count: number;
+  prepared_count: number;
+  participant_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreateGatheringRequest {
   title: string;
   description?: string;

@@ -6,7 +6,8 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         CreateGatheringRequest, CreateGatheringResponse, CreateMenuItemRequest, Gathering,
-        JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant, UpdateMenuItemRequest,
+        GatheringListItem, JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant,
+        UpdateMenuItemRequest,
     },
 };
 
@@ -25,7 +26,7 @@ pub async fn create_gathering(
     let now = Utc::now();
     let gathering_id = Uuid::new_v4();
     let host_id = Uuid::new_v4();
-    let invite_code = Uuid::new_v4().simple().to_string()[..10].to_string();
+    let invite_code = unique_invite_code(pool, &payload.title).await?;
     let access_token = Uuid::new_v4().to_string();
 
     sqlx::query(
@@ -104,6 +105,34 @@ pub async fn get_gathering_by_invite_code(
     .ok_or(AppError::NotFound)?;
 
     sync_expired_gathering(pool, gathering).await
+}
+
+pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>> {
+    let rows = sqlx::query_as::<_, GatheringListItem>(
+        r#"
+        SELECT
+            g.id,
+            g.title,
+            g.description,
+            g.invite_code,
+            g.status,
+            g.expires_at,
+            COUNT(DISTINCT m.id) AS item_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'prepared' THEN m.id END) AS prepared_count,
+            COUNT(DISTINCT p.id) AS participant_count,
+            g.created_at,
+            g.updated_at
+        FROM gatherings g
+        LEFT JOIN menu_items m ON m.gathering_id = g.id
+        LEFT JOIN participants p ON p.gathering_id = g.id
+        GROUP BY g.id
+        ORDER BY g.created_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }
 
 pub async fn join_gathering(
@@ -486,5 +515,56 @@ fn validate_menu_status(status: &str) -> AppResult<()> {
         _ => Err(AppError::Validation(
             "status must be planned, prepared, or cancelled".to_string(),
         )),
+    }
+}
+
+async fn unique_invite_code(pool: &DbPool, title: &str) -> AppResult<String> {
+    let base = slugify_title(title);
+    let mut candidate = base.clone();
+    let mut suffix = 2;
+
+    loop {
+        let exists: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)
+            FROM gatherings
+            WHERE invite_code = ?
+            "#,
+        )
+        .bind(&candidate)
+        .fetch_one(pool)
+        .await?;
+
+        if exists.0 == 0 {
+            return Ok(candidate);
+        }
+
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+}
+
+fn slugify_title(title: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+
+    for character in title.trim().to_lowercase().chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character);
+            last_was_dash = false;
+        } else if !last_was_dash && !slug.is_empty() {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    if slug.is_empty() {
+        "menu".to_string()
+    } else {
+        slug
     }
 }

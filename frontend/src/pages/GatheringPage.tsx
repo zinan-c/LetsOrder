@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { getGatheringByInviteCode } from '../api/gatherings';
+import { useParams } from 'react-router-dom';
+import { getGatheringByInviteCode, joinGathering } from '../api/gatherings';
 import {
   createMenuItem,
   listMenuItems,
@@ -8,9 +8,9 @@ import {
 } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import GatheringSummary from '../components/GatheringSummary';
-import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
-import { mockMenuItems } from '../data/mockGathering';
+import { mockGathering, mockMenuItems } from '../data/mockGathering';
+import type { Gathering } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
 
 function participantStorageKey(inviteCode?: string) {
@@ -47,16 +47,32 @@ export default function GatheringPage() {
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
+  const [currentGathering, setCurrentGathering] = useState<Gathering | null>(null);
   const [gatheringId, setGatheringId] = useState<string | null>(null);
   const [participantId, setParticipantId] = useState<string | null>(() =>
     localStorage.getItem(participantStorageKey(inviteCode)),
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const activeItems = menuItems.filter((item) => item.status !== 'cancelled');
-  const cancelledItems = menuItems.filter(
-    (item) => item.status === 'cancelled',
+  const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
+  const filteredMenuItems = menuItems.filter((item) =>
+    statusFilter === 'all' ? true : item.status === statusFilter,
   );
+  const sortedMenuItems = [...filteredMenuItems].sort((left, right) => {
+    if (left.status === right.status) {
+      return 0;
+    }
+
+    if (left.status === 'cancelled') {
+      return 1;
+    }
+
+    if (right.status === 'cancelled') {
+      return -1;
+    }
+
+    return 0;
+  });
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
 
@@ -75,11 +91,29 @@ export default function GatheringPage() {
           return;
         }
 
+        setCurrentGathering(gatheringResponse.gathering);
         setGatheringId(gatheringResponse.gathering.id);
 
-        const storedParticipantId = localStorage.getItem(
+        let storedParticipantId = localStorage.getItem(
           participantStorageKey(currentInviteCode),
         );
+
+        if (!storedParticipantId) {
+          const joinResponse = await joinGathering(
+            gatheringResponse.gathering.id,
+            'Menu editor',
+          );
+          storedParticipantId = joinResponse.participant.id;
+          localStorage.setItem(
+            participantStorageKey(currentInviteCode),
+            joinResponse.participant.id,
+          );
+          localStorage.setItem(
+            `letsorder:${currentInviteCode}:access_token`,
+            joinResponse.access_token,
+          );
+        }
+
         setParticipantId(storedParticipantId);
 
         const menuResponse = await listMenuItems(gatheringResponse.gathering.id);
@@ -89,6 +123,7 @@ export default function GatheringPage() {
       } catch {
         if (!ignore) {
           setGatheringId(null);
+          setCurrentGathering(null);
           setMenuItems(mockMenuItems);
         }
       }
@@ -196,14 +231,20 @@ export default function GatheringPage() {
   }
 
   const editorTitle = isEditing ? 'Update this dish' : 'Add a new dish';
+  const currentTitle = currentGathering?.title ?? mockGathering.title;
+  const currentDescription =
+    currentGathering?.description ?? mockGathering.description;
+  const currentExpiresAt = currentGathering?.expires_at ?? mockGathering.expiresAt;
+  const currentInviteCode =
+    currentGathering?.invite_code ?? inviteCode ?? mockGathering.inviteCode;
 
   return (
-    <div className="workspace-grid">
+    <div className="menu-workspace">
       <section>
         <div className="page-heading-row">
           <div>
             <p className="eyebrow">Invite code: {inviteCode}</p>
-            <h1>Menu workspace</h1>
+            <h1>{currentTitle} menu workspace</h1>
             <p className="lead">
               Add dishes, claim prep work, and keep the family menu tidy before
               it locks.
@@ -214,41 +255,43 @@ export default function GatheringPage() {
           </button>
         </div>
 
+        <GatheringSummary
+          title={currentTitle}
+          description={currentDescription}
+          inviteCode={currentInviteCode}
+          expiresAt={currentExpiresAt}
+          participantCount={
+            currentGathering ? undefined : mockGathering.participantCount
+          }
+        />
+
         <div className="toolbar">
-          <StatusPill>All</StatusPill>
-          <StatusPill tone="green">Prepared</StatusPill>
-          <StatusPill tone="red">Cancelled</StatusPill>
           <StatusPill tone={canUseApi ? 'green' : 'neutral'}>
             {editorModeLabel}
           </StatusPill>
+          <label className="status-filter">
+            Status
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as 'all' | MenuItemStatus)
+              }
+            >
+              <option value="all">All</option>
+              <option value="planned">Planned</option>
+              <option value="prepared">Prepared</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
           <span className="toolbar-note">Menu editing locks tomorrow at 6 PM</span>
         </div>
 
-        <div className="dish-grid">
-          {activeItems.map((item) => (
+        <div className="dish-list">
+          {sortedMenuItems.map((item) => (
             <DishCard item={item} key={item.id} onEdit={openEditDish} />
           ))}
         </div>
-
-        <PageCard
-          eyebrow="No deleting, just history"
-          title="Cancelled items stay visible"
-          description="For family planning, knowing what changed is useful. Cancelled dishes stay as a soft history trail."
-        >
-          <div className="dish-grid compact-grid">
-            {cancelledItems.map((item) => (
-              <DishCard item={item} key={item.id} onEdit={openEditDish} />
-            ))}
-          </div>
-        </PageCard>
       </section>
-
-      <aside className="sticky-side">
-        <GatheringSummary />
-        <Link className="button-link secondary full-width" to={`/g/${inviteCode}/review`}>
-          Open review
-        </Link>
-      </aside>
 
       {isEditorOpen ? (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>

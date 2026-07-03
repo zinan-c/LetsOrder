@@ -17,6 +17,21 @@ pub struct Gathering {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct GatheringListItem {
+    pub id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub invite_code: String,
+    pub status: String,
+    pub expires_at: DateTime<Utc>,
+    pub item_count: i64,
+    pub prepared_count: i64,
+    pub participant_count: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateGatheringRequest {
     pub title: String,

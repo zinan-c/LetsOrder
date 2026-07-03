@@ -1,8 +1,8 @@
 import { Link, Route, Routes } from 'react-router-dom';
 import CreateGatheringPage from './pages/CreateGatheringPage';
 import HostDashboardPage from './pages/HostDashboardPage';
-import InviteLandingPage from './pages/InviteLandingPage';
 import GatheringPage from './pages/GatheringPage';
+import MenusPage from './pages/MenusPage';
 import ReviewPage from './pages/ReviewPage';
 
 export default function App() {
@@ -14,19 +14,17 @@ export default function App() {
         </Link>
         <nav>
           <Link to="/">Create</Link>
-          <Link to="/g/hotpot-8f3a/menu">Menu</Link>
-          <Link to="/g/hotpot-8f3a/host">Host</Link>
-          <Link to="/g/hotpot-8f3a/review">Review</Link>
+          <Link to="/api/menus">Menus</Link>
         </nav>
       </header>
 
       <main>
         <Routes>
           <Route path="/" element={<CreateGatheringPage />} />
-          <Route path="/g/:inviteCode" element={<InviteLandingPage />} />
-          <Route path="/g/:inviteCode/menu" element={<GatheringPage />} />
-          <Route path="/g/:inviteCode/host" element={<HostDashboardPage />} />
-          <Route path="/g/:inviteCode/review" element={<ReviewPage />} />
+          <Route path="/api/menus" element={<MenusPage />} />
+          <Route path="/api/menu/:inviteCode" element={<GatheringPage />} />
+          <Route path="/api/host/:inviteCode" element={<HostDashboardPage />} />
+          <Route path="/api/review/:inviteCode" element={<ReviewPage />} />
         </Routes>
       </main>
     </div>

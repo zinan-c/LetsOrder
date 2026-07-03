@@ -21,16 +21,17 @@ export default function DishCard({
   return (
     <article className={`dish-card dish-card-${item.status}`}>
       <div className="dish-card-header">
-        <div>
-          <p className="card-kicker">{item.category}</p>
-          <h3>{item.name}</h3>
-        </div>
-        <StatusPill tone={toneByStatus[item.status]}>{item.status}</StatusPill>
+        <p className="card-kicker">{item.category}</p>
+        <h3>{item.name}</h3>
       </div>
       <p className="dish-meta">
-        {item.quantity} {item.unit} · Owner: {item.owner_name}
+        {item.quantity} {item.unit}
+      </p>
+      <p className="dish-owner">
+        {item.owner_name ? `Owner: ${item.owner_name}` : 'Owner: Unassigned'}
       </p>
       <p className="dish-note">{item.note}</p>
+      <StatusPill tone={toneByStatus[item.status]}>{item.status}</StatusPill>
       {readOnly ? null : (
         <button
           className="ghost-button"

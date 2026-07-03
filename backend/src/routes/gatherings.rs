@@ -14,7 +14,7 @@ use crate::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", post(create_gathering))
+        .route("/", get(list_gatherings).post(create_gathering))
         .route("/{invite_code}", get(get_gathering))
         .route(
             "/{gathering_id}/participants",
@@ -24,6 +24,11 @@ pub fn router() -> Router<AppState> {
             "/{gathering_id}/menu-items",
             get(list_menu_items).post(create_menu_item),
         )
+}
+
+async fn list_gatherings(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
+    let gatherings = gathering_service::list_gatherings(&state.pool).await?;
+    Ok(Json(serde_json::json!({ "gatherings": gatherings })))
 }
 
 async fn create_gathering(

@@ -2,7 +2,6 @@ import { FormEvent, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getGatheringByInviteCode, joinGathering } from '../api/gatherings';
-import GatheringSummary from '../components/GatheringSummary';
 import PageCard from '../components/PageCard';
 import { mockMenuItems } from '../data/mockGathering';
 
@@ -69,7 +68,7 @@ export default function InviteLandingPage() {
             />
           </label>
           {canEnterMenu ? (
-            <Link className="button-link" to={`/g/${inviteCode}/menu`}>
+            <Link className="button-link" to={`/api/menu/${inviteCode}`}>
               {gatheringQuery.isError ? 'Enter prototype menu' : 'Enter menu'}
             </Link>
           ) : (
@@ -97,7 +96,6 @@ export default function InviteLandingPage() {
           ))}
         </div>
       </PageCard>
-      <GatheringSummary />
     </div>
   );
 }

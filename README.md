@@ -118,7 +118,7 @@ Host opens create page
 ### 2. Participant Joins by URL
 
 ```text
-Participant opens /g/:inviteCode
+Participant opens /api/menu/:inviteCode
   -> frontend loads gathering summary
   -> participant enters display name
   -> backend creates participant
@@ -343,7 +343,7 @@ PORT=18080 DATABASE_URL="sqlite:///tmp/letsorder.db?mode=rwc" ./scripts/backend.
 ./scripts/frontend.sh
 ```
 
-The frontend dev server listens on `http://localhost:5173` and proxies `/api` requests to the backend.
+The frontend dev server listens on `http://localhost:5173` and proxies backend data requests such as `/api/gatherings` and `/api/menu-items`.
 
 Optional override:
 

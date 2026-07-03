@@ -1,29 +1,60 @@
-import { mockGathering } from '../data/mockGathering';
+import { Link } from 'react-router-dom';
 import StatusPill from './StatusPill';
 
-export default function GatheringSummary() {
+interface GatheringSummaryProps {
+  title: string;
+  description?: string | null;
+  inviteCode?: string;
+  expiresAt?: string;
+  participantCount?: number;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return 'Not set';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+export default function GatheringSummary({
+  title,
+  description,
+  inviteCode,
+  expiresAt,
+  participantCount,
+}: GatheringSummaryProps) {
   return (
     <aside className="summary-card">
       <div className="summary-topline">
-        <StatusPill>Active menu</StatusPill>
-        <span>{mockGathering.participantCount} people joined</span>
+        <StatusPill>Current menu</StatusPill>
+        {participantCount ? <span>{participantCount} people joined</span> : null}
       </div>
-      <h2>{mockGathering.title}</h2>
-      <p>{mockGathering.description}</p>
+      <h2>{title}</h2>
+      {description ? <p>{description}</p> : null}
       <dl className="summary-list">
         <div>
-          <dt>Host</dt>
-          <dd>{mockGathering.hostName}</dd>
-        </div>
-        <div>
           <dt>Menu locks</dt>
-          <dd>Jul 3, 2026 · 6:00 PM</dd>
+          <dd>{formatDateTime(expiresAt)}</dd>
         </div>
         <div>
           <dt>Invite</dt>
-          <dd>/g/{mockGathering.inviteCode}</dd>
+          <dd>{inviteCode ? `/api/menu/${inviteCode}` : 'Not ready'}</dd>
         </div>
       </dl>
+      {inviteCode ? (
+        <div className="summary-actions">
+          <Link className="button-link secondary" to={`/api/host/${inviteCode}`}>
+            Host controls
+          </Link>
+          <Link className="button-link secondary" to={`/api/review/${inviteCode}`}>
+            Review
+          </Link>
+        </div>
+      ) : null}
     </aside>
   );
 }

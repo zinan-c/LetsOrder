@@ -1,5 +1,9 @@
 import { apiRequest } from './client';
-import type { CreateGatheringRequest, Gathering } from '../types/gathering';
+import type {
+  CreateGatheringRequest,
+  Gathering,
+  GatheringListItem,
+} from '../types/gathering';
 
 export interface CreateGatheringResponse {
   gathering: Gathering;
@@ -14,6 +18,10 @@ export interface CreateGatheringResponse {
 
 export interface GetGatheringResponse {
   gathering: Gathering;
+}
+
+export interface ListGatheringsResponse {
+  gatherings: GatheringListItem[];
 }
 
 export interface JoinGatheringResponse {
@@ -31,6 +39,10 @@ export function createGathering(payload: CreateGatheringRequest) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function listGatherings() {
+  return apiRequest<ListGatheringsResponse>('/api/gatherings');
 }
 
 export function getGatheringByInviteCode(inviteCode: string) {
