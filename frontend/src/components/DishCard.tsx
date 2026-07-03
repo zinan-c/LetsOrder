@@ -10,9 +10,14 @@ const toneByStatus = {
 interface DishCardProps {
   item: MenuItem;
   readOnly?: boolean;
+  onEdit?: (item: MenuItem) => void;
 }
 
-export default function DishCard({ item, readOnly = false }: DishCardProps) {
+export default function DishCard({
+  item,
+  readOnly = false,
+  onEdit,
+}: DishCardProps) {
   return (
     <article className={`dish-card dish-card-${item.status}`}>
       <div className="dish-card-header">
@@ -27,7 +32,11 @@ export default function DishCard({ item, readOnly = false }: DishCardProps) {
       </p>
       <p className="dish-note">{item.note}</p>
       {readOnly ? null : (
-        <button className="ghost-button" type="button">
+        <button
+          className="ghost-button"
+          type="button"
+          onClick={() => onEdit?.(item)}
+        >
           Edit item
         </button>
       )}
