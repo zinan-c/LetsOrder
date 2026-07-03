@@ -32,7 +32,7 @@ export default function MenusPage() {
   return (
     <PageCard
       eyebrow="Menus"
-      title="Choose a menu to work on"
+      title="Choose one menu"
       description="Browse family gathering menus, then open one to edit dishes, claim prep work, and review what changed."
     >
       <div className="menu-list">

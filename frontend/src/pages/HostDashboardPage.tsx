@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import {
@@ -15,7 +15,7 @@ export default function HostDashboardPage() {
     <div className="dashboard-grid">
       <PageCard
         eyebrow="Host controls"
-        title="Keep the gathering on track"
+        title="Gathering on track"
         description="Copy the invite link, adjust the editing window, and lock the menu when everyone has had their say."
       >
         <div className="result-panel">
@@ -23,9 +23,6 @@ export default function HostDashboardPage() {
           <a href={inviteUrl}>{inviteUrl}</a>
           <div className="action-row">
             <button type="button">Copy invite</button>
-            <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
-              Preview invite
-            </Link>
           </div>
         </div>
 

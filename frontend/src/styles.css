@@ -159,10 +159,26 @@ h1 {
 
 .result-panel,
 .placeholder-list {
+  display: grid;
+  gap: 0.85rem;
   margin-top: 1.5rem;
   padding: 1rem;
   border-radius: 1rem;
   background: #ffedd5;
+}
+
+.result-panel p {
+  margin: 0;
+  color: #9a3412;
+  font-weight: 900;
+}
+
+.result-panel a {
+  overflow-wrap: anywhere;
+}
+
+.result-panel .action-row {
+  justify-content: flex-start;
 }
 
 .error {

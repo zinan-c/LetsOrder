@@ -47,8 +47,8 @@ export default function CreateGatheringPage() {
   return (
     <div>
       <PageCard
-        eyebrow="Family gathering menu"
-        title="Create a shared menu space"
+        eyebrow="GATHERING MENU"
+        title="Create a GATHERING"
         description="Start a gathering, invite family members, and let everyone help shape the menu before it locks."
       >
         <form className="form-grid" onSubmit={handleSubmit}>
@@ -92,7 +92,7 @@ export default function CreateGatheringPage() {
           </label>
 
           <button disabled={mutation.isPending} type="submit">
-            {mutation.isPending ? 'Creating...' : 'Create invitation'}
+            {mutation.isPending ? 'Initiating...' : 'initiate'}
           </button>
         </form>
 
