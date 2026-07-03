@@ -4,13 +4,16 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
-    models::{CreateGatheringRequest, Gathering, GatheringStatus},
+    models::{
+        CreateGatheringRequest, CreateGatheringResponse, CreateMenuItemRequest, Gathering,
+        JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant, UpdateMenuItemRequest,
+    },
 };
 
 pub async fn create_gathering(
-    _pool: &DbPool,
+    pool: &DbPool,
     payload: CreateGatheringRequest,
-) -> AppResult<Gathering> {
+) -> AppResult<CreateGatheringResponse> {
     if payload.title.trim().is_empty() {
         return Err(AppError::Validation("title is required".to_string()));
     }
@@ -20,18 +23,468 @@ pub async fn create_gathering(
     }
 
     let now = Utc::now();
+    let gathering_id = Uuid::new_v4();
+    let host_id = Uuid::new_v4();
+    let invite_code = Uuid::new_v4().simple().to_string()[..10].to_string();
+    let access_token = Uuid::new_v4().to_string();
 
-    Ok(Gathering {
-        id: Uuid::new_v4(),
-        title: payload.title,
-        description: payload.description,
-        invite_code: Uuid::new_v4().simple().to_string()[..10].to_string(),
-        status: GatheringStatus::Active,
-        starts_at: payload.starts_at,
-        expires_at: payload.expires_at,
-        locked_at: None,
-        archived_at: None,
-        created_at: now,
-        updated_at: now,
+    sqlx::query(
+        r#"
+        INSERT INTO gatherings (
+            id, title, description, invite_code, status, starts_at, expires_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(gathering_id)
+    .bind(payload.title.trim())
+    .bind(payload.description.as_deref().map(str::trim))
+    .bind(&invite_code)
+    .bind(payload.starts_at)
+    .bind(payload.expires_at)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO participants (
+            id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 'host', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(host_id)
+    .bind(gathering_id)
+    .bind(payload.host_name.trim())
+    .bind(&access_token)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(host_id),
+        "gathering_created",
+        "gathering",
+        Some(gathering_id),
+        None,
+    )
+    .await?;
+
+    let gathering = get_gathering_by_id(pool, gathering_id).await?;
+    let host = get_participant_by_id(pool, host_id).await?;
+
+    Ok(CreateGatheringResponse {
+        gathering,
+        host,
+        access_token,
     })
+}
+
+pub async fn get_gathering_by_invite_code(
+    pool: &DbPool,
+    invite_code: &str,
+) -> AppResult<Gathering> {
+    let gathering = sqlx::query_as::<_, Gathering>(
+        r#"
+        SELECT id, title, description, invite_code, status, starts_at, expires_at,
+               locked_at, archived_at, created_at, updated_at
+        FROM gatherings
+        WHERE invite_code = ?
+        "#,
+    )
+    .bind(invite_code)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    sync_expired_gathering(pool, gathering).await
+}
+
+pub async fn join_gathering(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    payload: JoinGatheringRequest,
+) -> AppResult<JoinGatheringResponse> {
+    if payload.display_name.trim().is_empty() {
+        return Err(AppError::Validation("display_name is required".to_string()));
+    }
+
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let now = Utc::now();
+    let participant_id = Uuid::new_v4();
+    let access_token = Uuid::new_v4().to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO participants (
+            id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(participant_id)
+    .bind(gathering_id)
+    .bind(payload.display_name.trim())
+    .bind(&access_token)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(participant_id),
+        "participant_joined",
+        "participant",
+        Some(participant_id),
+        None,
+    )
+    .await?;
+
+    Ok(JoinGatheringResponse {
+        participant: get_participant_by_id(pool, participant_id).await?,
+        access_token,
+    })
+}
+
+pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Participant>> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let participants = sqlx::query_as::<_, Participant>(
+        r#"
+        SELECT id, gathering_id, display_name, role, joined_at, created_at, updated_at
+        FROM participants
+        WHERE gathering_id = ?
+        ORDER BY joined_at ASC
+        "#,
+    )
+    .bind(gathering_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(participants)
+}
+
+pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<MenuItem>> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let items = sqlx::query_as::<_, MenuItem>(
+        r#"
+        SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
+               unit, owner_name, note, status, created_at, updated_at
+        FROM menu_items
+        WHERE gathering_id = ?
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(gathering_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(items)
+}
+
+pub async fn create_menu_item(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    payload: CreateMenuItemRequest,
+) -> AppResult<MenuItem> {
+    ensure_gathering_editable(pool, gathering_id).await?;
+    ensure_participant_in_gathering(pool, gathering_id, payload.created_by).await?;
+    validate_menu_item_name(&payload.name)?;
+
+    let quantity = payload.quantity.unwrap_or(1);
+    validate_quantity(quantity)?;
+
+    let status = payload.status.unwrap_or_else(|| "planned".to_string());
+    validate_menu_status(&status)?;
+
+    let now = Utc::now();
+    let menu_item_id = Uuid::new_v4();
+
+    sqlx::query(
+        r#"
+        INSERT INTO menu_items (
+            id, gathering_id, created_by, name, category, quantity, unit,
+            owner_name, note, status, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(menu_item_id)
+    .bind(gathering_id)
+    .bind(payload.created_by)
+    .bind(payload.name.trim())
+    .bind(payload.category.as_deref().map(str::trim))
+    .bind(quantity)
+    .bind(payload.unit.as_deref().map(str::trim))
+    .bind(payload.owner_name.as_deref().map(str::trim))
+    .bind(payload.note.as_deref().map(str::trim))
+    .bind(status)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(payload.created_by),
+        "menu_item_created",
+        "menu_item",
+        Some(menu_item_id),
+        None,
+    )
+    .await?;
+
+    get_menu_item_by_id(pool, menu_item_id).await
+}
+
+pub async fn update_menu_item(
+    pool: &DbPool,
+    menu_item_id: Uuid,
+    payload: UpdateMenuItemRequest,
+) -> AppResult<MenuItem> {
+    let current = get_menu_item_by_id(pool, menu_item_id).await?;
+    ensure_gathering_editable(pool, current.gathering_id).await?;
+    ensure_participant_in_gathering(pool, current.gathering_id, payload.updated_by).await?;
+
+    let name = payload.name.unwrap_or(current.name);
+    validate_menu_item_name(&name)?;
+
+    let quantity = payload.quantity.unwrap_or(current.quantity);
+    validate_quantity(quantity)?;
+
+    let status = payload.status.unwrap_or(current.status);
+    validate_menu_status(&status)?;
+
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE menu_items
+        SET updated_by = ?,
+            name = ?,
+            category = ?,
+            quantity = ?,
+            unit = ?,
+            owner_name = ?,
+            note = ?,
+            status = ?,
+            updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(payload.updated_by)
+    .bind(name.trim())
+    .bind(
+        payload
+            .category
+            .or(current.category)
+            .as_deref()
+            .map(str::trim),
+    )
+    .bind(quantity)
+    .bind(payload.unit.or(current.unit).as_deref().map(str::trim))
+    .bind(
+        payload
+            .owner_name
+            .or(current.owner_name)
+            .as_deref()
+            .map(str::trim),
+    )
+    .bind(payload.note.or(current.note).as_deref().map(str::trim))
+    .bind(&status)
+    .bind(now)
+    .bind(menu_item_id)
+    .execute(pool)
+    .await?;
+
+    let action = if status == "cancelled" {
+        "menu_item_cancelled"
+    } else {
+        "menu_item_updated"
+    };
+
+    insert_activity_log(
+        pool,
+        current.gathering_id,
+        Some(payload.updated_by),
+        action,
+        "menu_item",
+        Some(menu_item_id),
+        None,
+    )
+    .await?;
+
+    get_menu_item_by_id(pool, menu_item_id).await
+}
+
+async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
+    sqlx::query_as::<_, Gathering>(
+        r#"
+        SELECT id, title, description, invite_code, status, starts_at, expires_at,
+               locked_at, archived_at, created_at, updated_at
+        FROM gatherings
+        WHERE id = ?
+        "#,
+    )
+    .bind(gathering_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult<Participant> {
+    sqlx::query_as::<_, Participant>(
+        r#"
+        SELECT id, gathering_id, display_name, role, joined_at, created_at, updated_at
+        FROM participants
+        WHERE id = ?
+        "#,
+    )
+    .bind(participant_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<MenuItem> {
+    sqlx::query_as::<_, MenuItem>(
+        r#"
+        SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
+               unit, owner_name, note, status, created_at, updated_at
+        FROM menu_items
+        WHERE id = ?
+        "#,
+    )
+    .bind(menu_item_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+async fn ensure_participant_in_gathering(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    participant_id: Uuid,
+) -> AppResult<()> {
+    let exists: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+        FROM participants
+        WHERE id = ? AND gathering_id = ?
+        "#,
+    )
+    .bind(participant_id)
+    .bind(gathering_id)
+    .fetch_one(pool)
+    .await?;
+
+    if exists.0 == 0 {
+        return Err(AppError::Forbidden);
+    }
+
+    Ok(())
+}
+
+async fn ensure_gathering_editable(pool: &DbPool, gathering_id: Uuid) -> AppResult<()> {
+    let gathering =
+        sync_expired_gathering(pool, get_gathering_by_id(pool, gathering_id).await?).await?;
+
+    if gathering.status != "active" {
+        return Err(AppError::Forbidden);
+    }
+
+    Ok(())
+}
+
+async fn sync_expired_gathering(pool: &DbPool, gathering: Gathering) -> AppResult<Gathering> {
+    if gathering.status == "active" && gathering.expires_at <= Utc::now() {
+        let now = Utc::now();
+
+        sqlx::query(
+            r#"
+            UPDATE gatherings
+            SET status = 'locked', locked_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'active'
+            "#,
+        )
+        .bind(now)
+        .bind(now)
+        .bind(gathering.id)
+        .execute(pool)
+        .await?;
+
+        return get_gathering_by_id(pool, gathering.id).await;
+    }
+
+    Ok(gathering)
+}
+
+async fn insert_activity_log(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_id: Option<Uuid>,
+    action: &str,
+    target_type: &str,
+    target_id: Option<Uuid>,
+    detail: Option<String>,
+) -> AppResult<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO activity_logs (
+            id, gathering_id, actor_id, action, target_type, target_id, detail, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(gathering_id)
+    .bind(actor_id)
+    .bind(action)
+    .bind(target_type)
+    .bind(target_id)
+    .bind(detail)
+    .bind(Utc::now())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+fn validate_menu_item_name(name: &str) -> AppResult<()> {
+    if name.trim().is_empty() {
+        return Err(AppError::Validation("name is required".to_string()));
+    }
+
+    Ok(())
+}
+
+fn validate_quantity(quantity: i64) -> AppResult<()> {
+    if quantity <= 0 {
+        return Err(AppError::Validation(
+            "quantity must be greater than 0".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_menu_status(status: &str) -> AppResult<()> {
+    match status {
+        "planned" | "prepared" | "cancelled" => Ok(()),
+        _ => Err(AppError::Validation(
+            "status must be planned, prepared, or cancelled".to_string(),
+        )),
+    }
 }

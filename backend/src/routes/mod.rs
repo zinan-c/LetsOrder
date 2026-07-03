@@ -16,5 +16,6 @@ pub fn router(pool: DbPool) -> Router {
     Router::new()
         .route("/health", get(health::health_check))
         .nest("/api/gatherings", gatherings::router())
+        .nest("/api/menu-items", gatherings::menu_item_router())
         .with_state(state)
 }

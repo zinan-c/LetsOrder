@@ -2,22 +2,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GatheringStatus {
-    Draft,
-    Active,
-    Locked,
-    Archived,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Gathering {
     pub id: Uuid,
     pub title: String,
     pub description: Option<String>,
     pub invite_code: String,
-    pub status: GatheringStatus,
+    pub status: String,
     pub starts_at: Option<DateTime<Utc>>,
     pub expires_at: DateTime<Utc>,
     pub locked_at: Option<DateTime<Utc>>,
@@ -33,4 +24,74 @@ pub struct CreateGatheringRequest {
     pub host_name: String,
     pub starts_at: Option<DateTime<Utc>>,
     pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateGatheringResponse {
+    pub gathering: Gathering,
+    pub host: Participant,
+    pub access_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct Participant {
+    pub id: Uuid,
+    pub gathering_id: Uuid,
+    pub display_name: String,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JoinGatheringRequest {
+    pub display_name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JoinGatheringResponse {
+    pub participant: Participant,
+    pub access_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct MenuItem {
+    pub id: Uuid,
+    pub gathering_id: Uuid,
+    pub created_by: Uuid,
+    pub updated_by: Option<Uuid>,
+    pub name: String,
+    pub category: Option<String>,
+    pub quantity: i64,
+    pub unit: Option<String>,
+    pub owner_name: Option<String>,
+    pub note: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateMenuItemRequest {
+    pub created_by: Uuid,
+    pub name: String,
+    pub category: Option<String>,
+    pub quantity: Option<i64>,
+    pub unit: Option<String>,
+    pub owner_name: Option<String>,
+    pub note: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateMenuItemRequest {
+    pub updated_by: Uuid,
+    pub name: Option<String>,
+    pub category: Option<String>,
+    pub quantity: Option<i64>,
+    pub unit: Option<String>,
+    pub owner_name: Option<String>,
+    pub note: Option<String>,
+    pub status: Option<String>,
 }
