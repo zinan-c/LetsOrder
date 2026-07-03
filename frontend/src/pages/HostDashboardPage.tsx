@@ -16,6 +16,7 @@ export default function HostDashboardPage() {
       <PageCard
         eyebrow="Host controls"
         title="Gathering on track"
+        titleClassName="nowrap-title"
         description="Copy the invite link, adjust the editing window, and lock the menu when everyone has had their say."
       >
         <div className="result-panel">

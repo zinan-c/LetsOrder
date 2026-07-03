@@ -69,8 +69,12 @@ select {
   border: 1px solid #fed7aa;
   border-radius: 0.8rem;
   color: #1f2937;
-  background: white;
   font: inherit;
+}
+
+input,
+textarea {
+  background: white;
 }
 
 textarea {
@@ -81,6 +85,22 @@ textarea {
 
 select {
   appearance: none;
+  padding-right: 2.4rem;
+  color: #7c2d12;
+  background:
+    linear-gradient(45deg, transparent 50%, #c2410c 50%) right 1rem center / 7px 7px no-repeat,
+    linear-gradient(135deg, #c2410c 50%, transparent 50%) right 0.72rem center / 7px 7px no-repeat,
+    white;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #fb923c;
+  box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.16);
+  outline: none;
 }
 
 .app-shell {
@@ -106,6 +126,7 @@ select {
   color: #7c2d12;
   font-size: 1.35rem;
   font-weight: 900;
+  cursor: default;
 }
 
 .page-card {
@@ -132,6 +153,11 @@ h1 {
   color: #7c2d12;
   font-size: clamp(2rem, 6vw, 4.5rem);
   line-height: 0.95;
+}
+
+.nowrap-title,
+.menu-title {
+  white-space: nowrap;
 }
 
 .lead {
@@ -360,7 +386,6 @@ h1 {
   width: auto;
   min-height: 2.25rem;
   margin-top: 0;
-  padding-right: 2rem;
 }
 
 .toolbar-note {

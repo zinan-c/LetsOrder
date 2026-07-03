@@ -9,9 +9,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="site-header">
-        <Link className="brand" to="/">
-          LetsOrder
-        </Link>
+        <span className="brand">LetsOrder</span>
         <nav>
           <Link to="/">Create</Link>
           <Link to="/menus">Menus</Link>

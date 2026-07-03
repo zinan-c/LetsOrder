@@ -17,6 +17,26 @@ function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
 }
 
+const categoryOptions = [
+  'Main',
+  'Protein',
+  'Vegetables',
+  'Snack',
+  'Dessert',
+  'Drink',
+  'Other',
+];
+
+const unitOptions = [
+  'plates',
+  'boxes',
+  'cups',
+  'pot',
+  'servings',
+  'pieces',
+  'bags',
+];
+
 function createLocalMenuItem(
   formData: FormData,
   inviteCode?: string,
@@ -243,8 +263,8 @@ export default function GatheringPage() {
       <section>
         <div className="page-heading-row">
           <div>
-            <p className="eyebrow">Invite code: {inviteCode}</p>
-            <h1>{currentTitle} menu workspace</h1>
+            <p className="eyebrow">Menu workspace · {inviteCode}</p>
+            <h1 className="menu-title">{currentTitle}</h1>
             <p className="lead">
               Add dishes, claim prep work, and keep the family menu tidy before
               it locks.
@@ -326,12 +346,18 @@ export default function GatheringPage() {
 
             <label>
               Category
-              <input
+              <select
                 key={`category-${editingItem?.id ?? 'new'}`}
                 name="category"
-                placeholder="Snack"
                 defaultValue={editingItem?.category ?? ''}
-              />
+              >
+                <option value="">Choose category</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <div className="split-fields">
@@ -346,12 +372,18 @@ export default function GatheringPage() {
               </label>
               <label>
                 Unit
-                <input
+                <select
                   key={`unit-${editingItem?.id ?? 'new'}`}
                   name="unit"
-                  placeholder="plates"
                   defaultValue={editingItem?.unit ?? ''}
-                />
+                >
+                  <option value="">Choose unit</option>
+                  {unitOptions.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
