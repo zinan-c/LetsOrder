@@ -24,8 +24,15 @@ export default function HostDashboardPage() {
   const [showAllParticipants, setShowAllParticipants] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [deadline, setDeadline] = useState('');
-  const [hostMessage, setHostMessage] = useState<string | null>(null);
+  const [buttonFeedback, setButtonFeedback] = useState<
+    'copy' | 'deadline' | 'lock' | null
+  >(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
+
+  function showButtonFeedback(feedback: 'copy' | 'deadline' | 'lock') {
+    setButtonFeedback(feedback);
+    window.setTimeout(() => setButtonFeedback(null), 1200);
+  }
 
   const gatheringQuery = useQuery({
     queryKey: ['gathering', inviteCode],
@@ -52,11 +59,11 @@ export default function HostDashboardPage() {
   const lockMutation = useMutation({
     mutationFn: () => lockGathering(gathering?.id ?? ''),
     onMutate: () => {
-      setHostMessage(null);
+      setButtonFeedback(null);
     },
     onSuccess: async (response) => {
       setDeadline(toDateTimeLocalValue(response.gathering.expires_at));
-      setHostMessage('Already locked.');
+      showButtonFeedback('lock');
       queryClient.setQueryData(['gathering', inviteCode], response);
       await queryClient.invalidateQueries({ queryKey: ['gathering', inviteCode] });
       await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
@@ -71,15 +78,11 @@ export default function HostDashboardPage() {
         new Date(deadline).toISOString(),
       ),
     onMutate: () => {
-      setHostMessage(null);
+      setButtonFeedback(null);
     },
     onSuccess: async (response) => {
       setDeadline(toDateTimeLocalValue(response.gathering.expires_at));
-      setHostMessage(
-        response.gathering.is_locked
-          ? 'Deadline updated. Menu is already locked.'
-          : 'Deadline updated. Menu is active.',
-      );
+      showButtonFeedback('deadline');
       queryClient.setQueryData(['gathering', inviteCode], response);
       await queryClient.invalidateQueries({ queryKey: ['gathering', inviteCode] });
       await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
@@ -99,9 +102,9 @@ export default function HostDashboardPage() {
   async function handleCopyInvite() {
     try {
       await copyText(inviteUrl);
-      setHostMessage('Invite link copied.');
+      showButtonFeedback('copy');
     } catch {
-      setHostMessage('Could not copy invite link.');
+      return;
     }
   }
 
@@ -117,9 +120,14 @@ export default function HostDashboardPage() {
           <p>Invitation URL</p>
           <a href={inviteUrl}>{inviteUrl}</a>
           <div className="action-row">
-            <button type="button" onClick={handleCopyInvite}>
-              Copy invite
-            </button>
+            <span className="button-feedback-wrap">
+              <button type="button" onClick={handleCopyInvite}>
+                Copy invite
+              </button>
+              {buttonFeedback === 'copy' ? (
+                <span className="button-feedback">Copied</span>
+              ) : null}
+            </span>
             <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
               Enter menu
             </Link>
@@ -136,31 +144,40 @@ export default function HostDashboardPage() {
               onChange={(event) => setDeadline(event.target.value)}
             />
           </label>
-          <button
-            disabled={
-              !gathering ||
-              !deadline ||
-              updateDeadlineMutation.isPending
-            }
-            type="button"
-            onClick={() => updateDeadlineMutation.mutate()}
-          >
-            {updateDeadlineMutation.isPending ? 'Updating...' : 'Update deadline'}
-          </button>
-          <button
-            className="danger-button"
-            disabled={!gathering || gathering.is_locked || lockMutation.isPending}
-            type="button"
-            onClick={() => lockMutation.mutate()}
-          >
-            {gathering?.is_locked
-              ? 'Already locked'
-              : lockMutation.isPending
-                ? 'Locking...'
-                : 'Lock menu now'}
-          </button>
+          <span className="button-feedback-wrap">
+            <button
+              disabled={
+                !gathering ||
+                !deadline ||
+                updateDeadlineMutation.isPending
+              }
+              type="button"
+              onClick={() => updateDeadlineMutation.mutate()}
+            >
+              {updateDeadlineMutation.isPending ? 'Updating...' : 'Update deadline'}
+            </button>
+            {buttonFeedback === 'deadline' ? (
+              <span className="button-feedback">Updated</span>
+            ) : null}
+          </span>
+          <span className="button-feedback-wrap">
+            <button
+              className="danger-button"
+              disabled={!gathering || gathering.is_locked || lockMutation.isPending}
+              type="button"
+              onClick={() => lockMutation.mutate()}
+            >
+              {gathering?.is_locked
+                ? 'Already locked'
+                : lockMutation.isPending
+                  ? 'Locking...'
+                  : 'Lock menu now'}
+            </button>
+            {buttonFeedback === 'lock' ? (
+              <span className="button-feedback">Already locked</span>
+            ) : null}
+          </span>
         </div>
-        {hostMessage ? <p className="success">{hostMessage}</p> : null}
         {lockMutation.isError && !gathering?.is_locked ? (
           <p className="error">Could not lock this menu.</p>
         ) : null}

@@ -18,7 +18,7 @@ export default function CreateGatheringPage() {
   const [hostName, setHostName] = useState('');
   const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   const mutation = useMutation({
     mutationFn: createGathering,
@@ -56,9 +56,10 @@ export default function CreateGatheringPage() {
 
     try {
       await copyText(inviteUrl);
-      setCopyMessage('Invitation link copied.');
+      setCopyFeedback(true);
+      window.setTimeout(() => setCopyFeedback(false), 1200);
     } catch {
-      setCopyMessage('Could not copy invitation link.');
+      return;
     }
   }
 
@@ -125,9 +126,12 @@ export default function CreateGatheringPage() {
             <p>Your invitation link is ready:</p>
             <a href={inviteUrl}>{inviteUrl}</a>
             <div className="action-row">
-              <button type="button" onClick={handleCopyInvite}>
-                Copy link
-              </button>
+              <span className="button-feedback-wrap">
+                <button type="button" onClick={handleCopyInvite}>
+                  Copy link
+                </button>
+                {copyFeedback ? <span className="button-feedback">Copied</span> : null}
+              </span>
               <a className="button-link secondary" href={inviteUrl}>
                 Open menu
               </a>
@@ -135,7 +139,6 @@ export default function CreateGatheringPage() {
                 View menus
               </Link>
             </div>
-            {copyMessage ? <p className="success">{copyMessage}</p> : null}
           </div>
         ) : null}
       </PageCard>

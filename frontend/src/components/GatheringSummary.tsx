@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import StatusPill from './StatusPill';
-import { formatDateTime } from '../utils/dateTime';
+import { copyText } from '../utils/clipboard';
+import { formatCompactDateTime } from '../utils/dateTime';
 
 interface GatheringSummaryProps {
   title: string;
@@ -19,6 +21,29 @@ export default function GatheringSummary({
   isLocked = false,
   participantCount,
 }: GatheringSummaryProps) {
+  const [copyFeedback, setCopyFeedback] = useState(false);
+  const inviteUrl = inviteCode
+    ? `${window.location.origin}/menu/${inviteCode}`
+    : null;
+
+  function showCopyFeedback() {
+    setCopyFeedback(true);
+    window.setTimeout(() => setCopyFeedback(false), 1200);
+  }
+
+  async function handleCopyInvite() {
+    if (!inviteUrl) {
+      return;
+    }
+
+    try {
+      await copyText(inviteUrl);
+      showCopyFeedback();
+    } catch {
+      return;
+    }
+  }
+
   return (
     <aside className="summary-card">
       <div className="summary-topline">
@@ -27,16 +52,24 @@ export default function GatheringSummary({
       </div>
       <h2>{title}</h2>
       {description ? <p>{description}</p> : null}
-      <dl className="summary-list">
-        <div>
-          <dt>Menu locks</dt>
-          <dd>{formatDateTime(expiresAt)}</dd>
-        </div>
-        <div>
-          <dt>Invite</dt>
-          <dd>{inviteCode ? `/menu/${inviteCode}` : 'Not ready'}</dd>
-        </div>
-      </dl>
+      <div className="summary-lines">
+        <p>Menu will lock at {formatCompactDateTime(expiresAt)}.</p>
+        <p>
+          Invite URL: {inviteUrl ? <span>{inviteUrl}</span> : 'Not ready'}
+          {inviteUrl ? (
+            <span className="button-feedback-wrap">
+              <button
+                className="ghost-button mini-copy-button"
+                type="button"
+                onClick={handleCopyInvite}
+              >
+                Copy
+              </button>
+              {copyFeedback ? <span className="button-feedback">Copied</span> : null}
+            </span>
+          ) : null}
+        </p>
+      </div>
       {inviteCode ? (
         <div className="summary-actions">
           <Link className="button-link secondary" to={`/host/${inviteCode}`}>

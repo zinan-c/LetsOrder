@@ -217,6 +217,29 @@ h1 {
   font-weight: 800;
 }
 
+.button-feedback-wrap {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+}
+
+.button-feedback {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: 50%;
+  z-index: 5;
+  padding: 0.32rem 0.65rem;
+  border-radius: 999px;
+  color: white;
+  background: #15803d;
+  box-shadow: 0 10px 28px rgba(21, 128, 61, 0.22);
+  font-size: 0.78rem;
+  font-weight: 900;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 .two-column,
 .workspace-grid,
 .dashboard-grid {
@@ -299,32 +322,35 @@ h1 {
   font-size: 0.9rem;
 }
 
-.summary-list {
+.summary-lines {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin: 1.25rem 0 0;
-}
-
-.summary-list div {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.55rem;
+  margin-top: 1.25rem;
   padding-top: 0.8rem;
   border-top: 1px solid #fed7aa;
 }
 
-.summary-list dt {
-  color: #78716c;
-  font-weight: 700;
-}
-
-.summary-list dd {
+.summary-lines p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
   margin: 0;
   color: #292524;
   font-weight: 800;
-  text-align: right;
+}
+
+.summary-lines span {
   overflow-wrap: anywhere;
+}
+
+.mini-copy-button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+}
+
+.summary-copy-message {
+  margin: 0.75rem 0 0;
 }
 
 .summary-actions {
@@ -407,10 +433,10 @@ h1 {
 .dish-card {
   display: grid;
   grid-template-columns:
-    minmax(180px, 1.25fr)
-    minmax(90px, 0.45fr)
-    minmax(150px, 0.75fr)
-    minmax(180px, 1fr)
+    minmax(120px, 0.65fr)
+    minmax(220px, 1.35fr)
+    minmax(100px, 0.45fr)
+    minmax(170px, 0.8fr)
     112px
     auto;
   align-items: center;
@@ -420,11 +446,6 @@ h1 {
   border: 1px solid #fed7aa;
   border-radius: 1.1rem;
   background: #fffaf3;
-}
-
-.dish-card-header {
-  justify-content: flex-start;
-  min-width: 0;
 }
 
 .dish-card-prepared {
@@ -446,24 +467,30 @@ h1 {
   text-transform: uppercase;
 }
 
+.dish-category {
+  margin: 0;
+  color: #c2410c;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .dish-card h3 {
   margin: 0;
+  min-width: 0;
   color: #7c2d12;
   font-size: 1.05rem;
-}
-
-.dish-meta,
-.dish-owner,
-.dish-note {
-  margin: 0;
-  color: #57534e;
-  line-height: 1.5;
-}
-
-.dish-note {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dish-meta,
+.dish-owner {
+  margin: 0;
+  color: #57534e;
+  line-height: 1.5;
 }
 
 .dish-meta {
@@ -485,10 +512,10 @@ h1 {
 
 .final-menu-list .dish-card {
   grid-template-columns:
-    minmax(220px, 1.4fr)
+    minmax(120px, 0.65fr)
+    minmax(240px, 1.35fr)
     minmax(100px, 0.45fr)
-    minmax(160px, 0.75fr)
-    minmax(220px, 1fr)
+    minmax(170px, 0.8fr)
     112px;
 }
 

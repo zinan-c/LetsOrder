@@ -20,17 +20,14 @@ export default function DishCard({
 }: DishCardProps) {
   return (
     <article className={`dish-card dish-card-${item.status}`}>
-      <div className="dish-card-header">
-        <p className="card-kicker">{item.category}</p>
-        <h3>{item.name}</h3>
-      </div>
+      <p className="dish-category">{item.category ?? 'Other'}</p>
+      <h3>{item.name}</h3>
       <p className="dish-meta">
         {item.quantity} {item.unit}
       </p>
       <p className="dish-owner">
         {item.owner_name ? `Owner: ${item.owner_name}` : 'Owner: Unassigned'}
       </p>
-      <p className="dish-note">{item.note}</p>
       <StatusPill tone={toneByStatus[item.status]}>{item.status}</StatusPill>
       {readOnly ? null : (
         <button
