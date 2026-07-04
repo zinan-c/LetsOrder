@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { deleteGathering, listGatherings } from '../api/gatherings';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
@@ -26,6 +26,7 @@ const fallbackMenus: GatheringListItem[] = [
 
 export default function MenusPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [menuToDelete, setMenuToDelete] = useState<GatheringListItem | null>(
     null,
   );
@@ -57,11 +58,17 @@ export default function MenusPage() {
           <article
             className="menu-list-row"
             key={menu.id}
+            role="link"
+            tabIndex={0}
+            onClick={() => navigate(`/menu/${menu.invite_code}`)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                navigate(`/menu/${menu.invite_code}`);
+              }
+            }}
           >
             <div>
-              <p className="card-kicker">
-                {isUsingFallback ? 'Prototype menu' : 'Menu'}
-              </p>
               <h2>{menu.title}</h2>
               <p>{menu.description}</p>
             </div>
@@ -72,14 +79,14 @@ export default function MenusPage() {
               <span>{menu.participant_count} people</span>
             </div>
             <div className="menu-list-actions">
-              <Link className="button-link secondary" to={`/menu/${menu.invite_code}`}>
-                Open
-              </Link>
               <button
                 className="danger-button"
                 disabled={isUsingFallback}
                 type="button"
-                onClick={() => setMenuToDelete(menu)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMenuToDelete(menu);
+                }}
               >
                 Delete
               </button>
@@ -106,15 +113,11 @@ export default function MenusPage() {
             role="dialog"
             onClick={(event) => event.stopPropagation()}
           >
-            <p className="card-kicker">Delete menu</p>
-            <h2 id="delete-menu-title">Delete {menuToDelete.title}?</h2>
+            <h2 id="delete-menu-title">Delete Menu "{menuToDelete.title}"?</h2>
             <p>
               This removes the menu from the active list. The data is archived
               instead of permanently destroyed.
             </p>
-            {deleteMutation.isError ? (
-              <p className="error">Could not delete this menu.</p>
-            ) : null}
             <div className="action-row modal-actions">
               <button
                 className="danger-button"

@@ -92,7 +92,7 @@ export default function CreateGatheringPage() {
           </label>
 
           <button disabled={mutation.isPending} type="submit">
-            {mutation.isPending ? 'Initiating...' : 'initiate'}
+            {mutation.isPending ? 'Creating invitation...' : 'Create invitation'}
           </button>
         </form>
 

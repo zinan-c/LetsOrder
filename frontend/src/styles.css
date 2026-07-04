@@ -588,6 +588,19 @@ h1 {
   border: 1px solid #fed7aa;
   border-radius: 1.4rem;
   background: #fffaf3;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.menu-list-row:hover,
+.menu-list-row:focus-visible {
+  border-color: #fb923c;
+  box-shadow: 0 18px 45px rgba(154, 52, 18, 0.12);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .menu-list-row h2 {
@@ -617,6 +630,33 @@ h1 {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.join-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 0.8fr) auto;
+  gap: 1rem;
+  align-items: end;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #fed7aa;
+  border-radius: 1.25rem;
+  background: #fff7ed;
+}
+
+.join-panel h2,
+.join-panel p {
+  margin: 0;
+}
+
+.join-panel h2 {
+  color: #7c2d12;
+}
+
+.join-panel p:not(.card-kicker) {
+  margin-top: 0.35rem;
+  color: #57534e;
+  line-height: 1.5;
 }
 
 .confirm-modal {
@@ -806,6 +846,10 @@ h1 {
   }
 
   .control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .join-panel {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { getGatheringByInviteCode, joinGathering } from '../api/gatherings';
+import {
+  getGatheringByInviteCode,
+  joinGathering,
+  listParticipants,
+} from '../api/gatherings';
 import {
   createMenuItem,
   listMenuItems,
@@ -10,8 +14,9 @@ import DishCard from '../components/DishCard';
 import GatheringSummary from '../components/GatheringSummary';
 import StatusPill from '../components/StatusPill';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
-import type { Gathering } from '../types/gathering';
+import type { Gathering, Participant } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
+import { getCookieUser, setCookieUser } from '../utils/user';
 
 function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
@@ -79,10 +84,15 @@ export default function GatheringPage() {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
   const [currentGathering, setCurrentGathering] = useState<Gathering | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [gatheringId, setGatheringId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState(() => getCookieUser());
+  const [displayName, setDisplayName] = useState(() => getCookieUser());
   const [participantId, setParticipantId] = useState<string | null>(() =>
     localStorage.getItem(participantStorageKey(inviteCode)),
   );
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [isJoining, setIsJoining] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
@@ -128,11 +138,29 @@ export default function GatheringPage() {
         let storedParticipantId = localStorage.getItem(
           participantStorageKey(currentInviteCode),
         );
+        const participantsResponse = await listParticipants(
+          gatheringResponse.gathering.id,
+        );
+        if (!ignore) {
+          setParticipants(participantsResponse.participants);
+        }
 
-        if (!storedParticipantId) {
+        if (storedParticipantId && !currentUser) {
+          const storedParticipant = participantsResponse.participants.find(
+            (participant) => participant.id === storedParticipantId,
+          );
+
+          if (storedParticipant) {
+            setCurrentUser(storedParticipant.display_name);
+            setDisplayName(storedParticipant.display_name);
+            setCookieUser(storedParticipant.display_name);
+          }
+        }
+
+        if (!storedParticipantId && currentUser) {
           const joinResponse = await joinGathering(
             gatheringResponse.gathering.id,
-            'Menu editor',
+            currentUser,
           );
           storedParticipantId = joinResponse.participant.id;
           localStorage.setItem(
@@ -143,6 +171,9 @@ export default function GatheringPage() {
             `letsorder:${currentInviteCode}:access_token`,
             joinResponse.access_token,
           );
+          if (!ignore) {
+            setParticipants((items) => [joinResponse.participant, ...items]);
+          }
         }
 
         setParticipantId(storedParticipantId);
@@ -155,6 +186,7 @@ export default function GatheringPage() {
         if (!ignore) {
           setGatheringId(null);
           setCurrentGathering(null);
+          setParticipants([]);
           setMenuItems(mockMenuItems);
         }
       }
@@ -165,7 +197,7 @@ export default function GatheringPage() {
     return () => {
       ignore = true;
     };
-  }, [inviteCode]);
+  }, [currentUser, inviteCode]);
 
   const editorModeLabel = useMemo(() => {
     if (canUseApi) {
@@ -175,8 +207,63 @@ export default function GatheringPage() {
     return 'Local prototype mode';
   }, [canUseApi]);
 
+  const ownerOptions = useMemo(() => {
+    const names = new Set(
+      participants
+        .map((participant) => participant.display_name)
+        .filter(Boolean),
+    );
+
+    if (currentUser) {
+      names.add(currentUser);
+    }
+
+    if (editingItem?.owner_name) {
+      names.add(editingItem.owner_name);
+    }
+
+    return [...names];
+  }, [currentUser, editingItem?.owner_name, participants]);
+
+  async function handleJoinMenu(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!gatheringId || !inviteCode) {
+      return;
+    }
+
+    const name = displayName.trim();
+    if (!name) {
+      setJoinError('Your display name is required.');
+      return;
+    }
+
+    setIsJoining(true);
+    setJoinError(null);
+
+    try {
+      const response = await joinGathering(gatheringId, name);
+      localStorage.setItem(
+        participantStorageKey(inviteCode),
+        response.participant.id,
+      );
+      localStorage.setItem(
+        `letsorder:${inviteCode}:access_token`,
+        response.access_token,
+      );
+      setCookieUser(name);
+      setCurrentUser(name);
+      setParticipantId(response.participant.id);
+      setParticipants((items) => [response.participant, ...items]);
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'Failed to join menu.');
+    } finally {
+      setIsJoining(false);
+    }
+  }
+
   function openAddDish() {
-    if (isCurrentMenuLocked) {
+    if (isCurrentMenuLocked || (gatheringId && !participantId)) {
       return;
     }
 
@@ -186,7 +273,7 @@ export default function GatheringPage() {
   }
 
   function openEditDish(item: MenuItem) {
-    if (isCurrentMenuLocked) {
+    if (isCurrentMenuLocked || (gatheringId && !participantId)) {
       return;
     }
 
@@ -223,7 +310,8 @@ export default function GatheringPage() {
             category: String(formData.get('category') ?? '').trim(),
             quantity: Number(formData.get('quantity') || 1),
             unit: String(formData.get('unit') ?? '').trim(),
-            owner_name: String(formData.get('owner_name') ?? '').trim(),
+            owner_name:
+              String(formData.get('owner_name') ?? '').trim() || currentUser,
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -240,7 +328,8 @@ export default function GatheringPage() {
             category: String(formData.get('category') ?? '').trim(),
             quantity: Number(formData.get('quantity') || 1),
             unit: String(formData.get('unit') ?? '').trim(),
-            owner_name: String(formData.get('owner_name') ?? '').trim(),
+            owner_name:
+              String(formData.get('owner_name') ?? '').trim() || currentUser,
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -277,6 +366,7 @@ export default function GatheringPage() {
   const currentInviteCode =
     currentGathering?.invite_code ?? inviteCode ?? mockGathering.inviteCode;
   const isCurrentMenuLocked = currentGathering?.is_locked ?? false;
+  const needsDisplayName = Boolean(currentGathering && !participantId);
 
   return (
     <div className="menu-workspace">
@@ -291,11 +381,15 @@ export default function GatheringPage() {
             </p>
           </div>
           <button
-            disabled={isCurrentMenuLocked}
+            disabled={isCurrentMenuLocked || needsDisplayName}
             type="button"
             onClick={openAddDish}
           >
-            {isCurrentMenuLocked ? 'Menu locked' : 'Add dish'}
+            {isCurrentMenuLocked
+              ? 'Menu locked'
+              : needsDisplayName
+                ? 'Join first'
+                : 'Add dish'}
           </button>
         </div>
 
@@ -309,6 +403,32 @@ export default function GatheringPage() {
             currentGathering ? undefined : mockGathering.participantCount
           }
         />
+
+        {needsDisplayName ? (
+          <form className="join-panel" onSubmit={handleJoinMenu}>
+            <div>
+              <p className="card-kicker">Join menu</p>
+              <h2>Tell us who is editing</h2>
+              <p>
+                Enter your name before adding or updating dishes, so the host can
+                see who changed what.
+              </p>
+            </div>
+            <label>
+              Your display name
+              <input
+                required
+                value={displayName}
+                placeholder="Grandma Lin"
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </label>
+            {joinError ? <p className="error">{joinError}</p> : null}
+            <button disabled={isJoining} type="submit">
+              {isJoining ? 'Joining...' : 'Join menu'}
+            </button>
+          </form>
+        ) : null}
 
         <div className="toolbar">
           <StatusPill tone={canUseApi ? 'green' : 'neutral'}>
@@ -383,9 +503,8 @@ export default function GatheringPage() {
               <select
                 key={`category-${editingItem?.id ?? 'new'}`}
                 name="category"
-                defaultValue={editingItem?.category ?? ''}
+                defaultValue={editingItem?.category ?? 'Main'}
               >
-                <option value="">Choose category</option>
                 {categoryOptions.map((category) => (
                   <option key={category} value={category}>
                     {category}
@@ -409,9 +528,8 @@ export default function GatheringPage() {
                 <select
                   key={`unit-${editingItem?.id ?? 'new'}`}
                   name="unit"
-                  defaultValue={editingItem?.unit ?? ''}
+                  defaultValue={editingItem?.unit ?? 'plates'}
                 >
-                  <option value="">Choose unit</option>
                   {unitOptions.map((unit) => (
                     <option key={unit} value={unit}>
                       {unit}
@@ -436,12 +554,17 @@ export default function GatheringPage() {
 
             <label>
               Owner
-              <input
+              <select
                 key={`owner-${editingItem?.id ?? 'new'}`}
                 name="owner_name"
-                placeholder="Aunt May"
-                defaultValue={editingItem?.owner_name ?? ''}
-              />
+                defaultValue={editingItem?.owner_name ?? currentUser}
+              >
+                {ownerOptions.map((owner) => (
+                  <option key={owner} value={owner}>
+                    {owner}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>

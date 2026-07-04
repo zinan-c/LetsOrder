@@ -138,14 +138,14 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
 }
 
 pub async fn archive_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
-    get_gathering_by_id(pool, gathering_id).await?;
-
     let now = Utc::now();
 
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         UPDATE gatherings
-        SET status = 'archived', archived_at = ?, updated_at = ?
+        SET status = 'archived',
+            archived_at = COALESCE(archived_at, ?),
+            updated_at = ?
         WHERE id = ?
         "#,
     )
@@ -154,6 +154,10 @@ pub async fn archive_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<G
     .bind(gathering_id)
     .execute(pool)
     .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
 
     insert_activity_log(
         pool,

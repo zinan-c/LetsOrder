@@ -1,19 +1,33 @@
-import { Link, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import CreateGatheringPage from './pages/CreateGatheringPage';
 import HostDashboardPage from './pages/HostDashboardPage';
 import GatheringPage from './pages/GatheringPage';
 import MenusPage from './pages/MenusPage';
 import ReviewPage from './pages/ReviewPage';
+import { syncUserFromQuery } from './utils/user';
 
 export default function App() {
+  const location = useLocation();
+  const [currentUser, setCurrentUser] = useState(() =>
+    syncUserFromQuery(window.location.search),
+  );
+  const isAdmin = currentUser === 'admin';
+
+  useEffect(() => {
+    setCurrentUser(syncUserFromQuery(location.search));
+  }, [location.search]);
+
   return (
     <div className="app-shell">
       <header className="site-header">
         <span className="brand">LetsOrder</span>
-        <nav>
-          <Link to="/">Create</Link>
-          <Link to="/menus">Menus</Link>
-        </nav>
+        {isAdmin ? (
+          <nav>
+            <Link to="/">Initiate</Link>
+            <Link to="/menus">Menus</Link>
+          </nav>
+        ) : null}
       </header>
 
       <main>
