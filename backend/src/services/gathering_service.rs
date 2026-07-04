@@ -187,9 +187,9 @@ pub async fn update_gathering_deadline(
         r#"
         UPDATE gatherings
         SET expires_at = ?,
-            status = CASE WHEN ? THEN 'locked' ELSE status END,
-            is_locked = CASE WHEN ? THEN 1 ELSE is_locked END,
-            locked_at = CASE WHEN ? THEN COALESCE(locked_at, ?) ELSE locked_at END,
+            status = CASE WHEN ? THEN 'locked' ELSE 'active' END,
+            is_locked = CASE WHEN ? THEN 1 ELSE 0 END,
+            locked_at = CASE WHEN ? THEN COALESCE(locked_at, ?) ELSE NULL END,
             updated_at = ?
         WHERE id = ?
         "#,

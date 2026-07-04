@@ -23,6 +23,7 @@ export default function HostDashboardPage() {
   const [showAllParticipants, setShowAllParticipants] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [deadline, setDeadline] = useState('');
+  const [hostMessage, setHostMessage] = useState<string | null>(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
 
   const gatheringQuery = useQuery({
@@ -49,7 +50,13 @@ export default function HostDashboardPage() {
 
   const lockMutation = useMutation({
     mutationFn: () => lockGathering(gathering?.id ?? ''),
-    onSuccess: async () => {
+    onMutate: () => {
+      setHostMessage(null);
+    },
+    onSuccess: async (response) => {
+      setDeadline(toDateTimeLocalValue(response.gathering.expires_at));
+      setHostMessage('Already locked.');
+      queryClient.setQueryData(['gathering', inviteCode], response);
       await queryClient.invalidateQueries({ queryKey: ['gathering', inviteCode] });
       await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
       await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
@@ -62,7 +69,17 @@ export default function HostDashboardPage() {
         gathering?.id ?? '',
         new Date(deadline).toISOString(),
       ),
-    onSuccess: async () => {
+    onMutate: () => {
+      setHostMessage(null);
+    },
+    onSuccess: async (response) => {
+      setDeadline(toDateTimeLocalValue(response.gathering.expires_at));
+      setHostMessage(
+        response.gathering.is_locked
+          ? 'Deadline updated. Menu is already locked.'
+          : 'Deadline updated. Menu is active.',
+      );
+      queryClient.setQueryData(['gathering', inviteCode], response);
       await queryClient.invalidateQueries({ queryKey: ['gathering', inviteCode] });
       await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
       await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
@@ -103,14 +120,13 @@ export default function HostDashboardPage() {
             <input
               type="datetime-local"
               value={deadline}
-              disabled={!gathering || gathering.is_locked}
+              disabled={!gathering}
               onChange={(event) => setDeadline(event.target.value)}
             />
           </label>
           <button
             disabled={
               !gathering ||
-              gathering.is_locked ||
               !deadline ||
               updateDeadlineMutation.isPending
             }
@@ -126,13 +142,14 @@ export default function HostDashboardPage() {
             onClick={() => lockMutation.mutate()}
           >
             {gathering?.is_locked
-              ? 'Menu locked'
+              ? 'Already locked'
               : lockMutation.isPending
                 ? 'Locking...'
                 : 'Lock menu now'}
           </button>
         </div>
-        {lockMutation.isError ? (
+        {hostMessage ? <p className="success">{hostMessage}</p> : null}
+        {lockMutation.isError && !gathering?.is_locked ? (
           <p className="error">Could not lock this menu.</p>
         ) : null}
         {updateDeadlineMutation.isError ? (
