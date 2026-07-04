@@ -7,7 +7,7 @@ use crate::{
     models::{
         CreateGatheringRequest, CreateGatheringResponse, CreateMenuItemRequest, Gathering,
         GatheringListItem, JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant,
-        UpdateMenuItemRequest,
+        UpdateGatheringRequest, UpdateMenuItemRequest,
     },
 };
 
@@ -164,6 +164,51 @@ pub async fn archive_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<G
         gathering_id,
         None,
         "gathering_archived",
+        "gathering",
+        Some(gathering_id),
+        None,
+    )
+    .await?;
+
+    get_gathering_by_id(pool, gathering_id).await
+}
+
+pub async fn update_gathering_deadline(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    payload: UpdateGatheringRequest,
+) -> AppResult<Gathering> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let now = Utc::now();
+    let should_lock = payload.expires_at <= now;
+
+    sqlx::query(
+        r#"
+        UPDATE gatherings
+        SET expires_at = ?,
+            status = CASE WHEN ? THEN 'locked' ELSE status END,
+            is_locked = CASE WHEN ? THEN 1 ELSE is_locked END,
+            locked_at = CASE WHEN ? THEN COALESCE(locked_at, ?) ELSE locked_at END,
+            updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(payload.expires_at)
+    .bind(should_lock)
+    .bind(should_lock)
+    .bind(should_lock)
+    .bind(now)
+    .bind(now)
+    .bind(gathering_id)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        None,
+        "gathering_deadline_updated",
         "gathering",
         Some(gathering_id),
         None,
@@ -407,10 +452,15 @@ pub async fn lock_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gath
     sqlx::query(
         r#"
         UPDATE gatherings
-        SET status = 'locked', is_locked = 1, locked_at = ?, updated_at = ?
+        SET status = 'locked',
+            is_locked = 1,
+            expires_at = ?,
+            locked_at = ?,
+            updated_at = ?
         WHERE id = ?
         "#,
     )
+    .bind(now)
     .bind(now)
     .bind(now)
     .bind(gathering_id)

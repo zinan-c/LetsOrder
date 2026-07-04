@@ -50,6 +50,11 @@ pub struct CreateGatheringResponse {
     pub access_token: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateGatheringRequest {
+    pub expires_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Participant {
     pub id: Uuid,

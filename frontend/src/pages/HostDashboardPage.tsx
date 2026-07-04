@@ -1,26 +1,17 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   getGatheringByInviteCode,
   listActivityLogs,
   listParticipants,
   lockGathering,
+  updateGatheringDeadline,
 } from '../api/gatherings';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import type { ActivityLog, Participant } from '../types/gathering';
-
-function formatDateTime(value?: string | null) {
-  if (!value) {
-    return 'No activity yet';
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
-}
+import { formatDateTime, toDateTimeLocalValue } from '../utils/dateTime';
 
 function formatAction(log: ActivityLog) {
   return log.action.replaceAll('_', ' ');
@@ -31,6 +22,7 @@ export default function HostDashboardPage() {
   const queryClient = useQueryClient();
   const [showAllParticipants, setShowAllParticipants] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const [deadline, setDeadline] = useState('');
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
 
   const gatheringQuery = useQuery({
@@ -64,6 +56,23 @@ export default function HostDashboardPage() {
     },
   });
 
+  const updateDeadlineMutation = useMutation({
+    mutationFn: () =>
+      updateGatheringDeadline(
+        gathering?.id ?? '',
+        new Date(deadline).toISOString(),
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['gathering', inviteCode] });
+      await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
+      await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
+    },
+  });
+
+  useEffect(() => {
+    setDeadline(toDateTimeLocalValue(gathering?.expires_at));
+  }, [gathering?.expires_at]);
+
   const participants = participantsQuery.data?.participants ?? [];
   const recentParticipants = participants.slice(0, 4);
   const activityLogs = activityQuery.data?.activity_logs ?? [];
@@ -82,6 +91,9 @@ export default function HostDashboardPage() {
           <a href={inviteUrl}>{inviteUrl}</a>
           <div className="action-row">
             <button type="button">Copy invite</button>
+            <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
+              Enter menu
+            </Link>
           </div>
         </div>
 
@@ -90,14 +102,23 @@ export default function HostDashboardPage() {
             Menu editing deadline
             <input
               type="datetime-local"
-              defaultValue={
-                gathering?.expires_at
-                  ? new Date(gathering.expires_at).toISOString().slice(0, 16)
-                  : ''
-              }
+              value={deadline}
+              disabled={!gathering || gathering.is_locked}
+              onChange={(event) => setDeadline(event.target.value)}
             />
           </label>
-          <button type="button">Update deadline</button>
+          <button
+            disabled={
+              !gathering ||
+              gathering.is_locked ||
+              !deadline ||
+              updateDeadlineMutation.isPending
+            }
+            type="button"
+            onClick={() => updateDeadlineMutation.mutate()}
+          >
+            {updateDeadlineMutation.isPending ? 'Updating...' : 'Update deadline'}
+          </button>
           <button
             className="danger-button"
             disabled={!gathering || gathering.is_locked || lockMutation.isPending}
@@ -113,6 +134,9 @@ export default function HostDashboardPage() {
         </div>
         {lockMutation.isError ? (
           <p className="error">Could not lock this menu.</p>
+        ) : null}
+        {updateDeadlineMutation.isError ? (
+          <p className="error">Could not update the deadline.</p>
         ) : null}
       </PageCard>
 

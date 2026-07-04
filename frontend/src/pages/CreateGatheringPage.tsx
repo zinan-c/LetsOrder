@@ -1,16 +1,18 @@
 import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createGathering } from '../api/gatherings';
 import PageCard from '../components/PageCard';
+import { toDateTimeLocalValue } from '../utils/dateTime';
 
 function defaultExpiry() {
   const date = new Date();
   date.setDate(date.getDate() + 1);
-  return date.toISOString().slice(0, 16);
+  return toDateTimeLocalValue(date.toISOString());
 }
 
 export default function CreateGatheringPage() {
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [hostName, setHostName] = useState('');
   const [description, setDescription] = useState('');
@@ -27,6 +29,7 @@ export default function CreateGatheringPage() {
         `letsorder:${response.gathering.invite_code}:access_token`,
         response.access_token,
       );
+      navigate(`/host/${response.gathering.invite_code}`);
     },
   });
 

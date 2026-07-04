@@ -7,7 +7,9 @@ use uuid::Uuid;
 
 use crate::{
     errors::AppResult,
-    models::{CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest},
+    models::{
+        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest, UpdateGatheringRequest,
+    },
     routes::AppState,
     services::gathering_service,
 };
@@ -15,7 +17,12 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gatherings).post(create_gathering))
-        .route("/{identifier}", get(get_gathering).delete(delete_gathering))
+        .route(
+            "/{identifier}",
+            get(get_gathering)
+                .patch(update_gathering)
+                .delete(delete_gathering),
+        )
         .route("/{gathering_id}/lock", post(lock_gathering))
         .route("/{gathering_id}/activity-logs", get(list_activity_logs))
         .route(
@@ -55,6 +62,16 @@ async fn delete_gathering(
     Path(gathering_id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     let gathering = gathering_service::archive_gathering(&state.pool, gathering_id).await?;
+    Ok(Json(serde_json::json!({ "gathering": gathering })))
+}
+
+async fn update_gathering(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+    Json(payload): Json<UpdateGatheringRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let gathering =
+        gathering_service::update_gathering_deadline(&state.pool, gathering_id, payload).await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 

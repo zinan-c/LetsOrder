@@ -16,21 +16,11 @@ import StatusPill from '../components/StatusPill';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
+import { formatDateTime } from '../utils/dateTime';
 import { getCookieUser, setCookieUser } from '../utils/user';
 
 function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
-}
-
-function formatDateTime(value?: string) {
-  if (!value) {
-    return 'Not set';
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
 }
 
 const categoryOptions = [

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import StatusPill from './StatusPill';
+import { formatDateTime } from '../utils/dateTime';
 
 interface GatheringSummaryProps {
   title: string;
@@ -8,17 +9,6 @@ interface GatheringSummaryProps {
   expiresAt?: string;
   isLocked?: boolean;
   participantCount?: number;
-}
-
-function formatDateTime(value?: string) {
-  if (!value) {
-    return 'Not set';
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
 }
 
 export default function GatheringSummary({

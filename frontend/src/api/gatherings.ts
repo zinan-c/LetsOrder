@@ -60,6 +60,13 @@ export function deleteGathering(gatheringId: string) {
   });
 }
 
+export function updateGatheringDeadline(gatheringId: string, expiresAt: string) {
+  return apiRequest<GetGatheringResponse>(`/api/gatherings/${gatheringId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ expires_at: expiresAt }),
+  });
+}
+
 export function lockGathering(gatheringId: string) {
   return apiRequest<GetGatheringResponse>(`/api/gatherings/${gatheringId}/lock`, {
     method: 'POST',
