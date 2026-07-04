@@ -35,3 +35,25 @@ stop_process_on_port() {
     kill -9 $remaining_pids >/dev/null 2>&1 || true
   fi
 }
+
+wait_for_http() {
+  local url="$1"
+  local label="$2"
+  local attempts="${3:-30}"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Skipping $label readiness check: curl is not available."
+    return
+  fi
+
+  for ((attempt = 1; attempt <= attempts; attempt += 1)); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return
+    fi
+
+    sleep 1
+  done
+
+  echo "$label did not become ready at $url after ${attempts}s." >&2
+  exit 1
+}

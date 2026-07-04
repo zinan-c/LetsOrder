@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { createGathering } from '../api/gatherings';
 import PageCard from '../components/PageCard';
+import { copyText } from '../utils/clipboard';
 import { toDateTimeLocalValue } from '../utils/dateTime';
 
 function defaultExpiry() {
@@ -17,6 +18,7 @@ export default function CreateGatheringPage() {
   const [hostName, setHostName] = useState('');
   const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: createGathering,
@@ -46,6 +48,19 @@ export default function CreateGatheringPage() {
   const inviteUrl = mutation.data
     ? `${window.location.origin}/menu/${mutation.data.gathering.invite_code}`
     : null;
+
+  async function handleCopyInvite() {
+    if (!inviteUrl) {
+      return;
+    }
+
+    try {
+      await copyText(inviteUrl);
+      setCopyMessage('Invitation link copied.');
+    } catch {
+      setCopyMessage('Could not copy invitation link.');
+    }
+  }
 
   return (
     <div>
@@ -110,7 +125,9 @@ export default function CreateGatheringPage() {
             <p>Your invitation link is ready:</p>
             <a href={inviteUrl}>{inviteUrl}</a>
             <div className="action-row">
-              <button type="button">Copy link</button>
+              <button type="button" onClick={handleCopyInvite}>
+                Copy link
+              </button>
               <a className="button-link secondary" href={inviteUrl}>
                 Open menu
               </a>
@@ -118,6 +135,7 @@ export default function CreateGatheringPage() {
                 View menus
               </Link>
             </div>
+            {copyMessage ? <p className="success">{copyMessage}</p> : null}
           </div>
         ) : null}
       </PageCard>

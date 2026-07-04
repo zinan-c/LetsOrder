@@ -735,7 +735,7 @@ fn slugify_title(title: &str) -> String {
     }
 
     if slug.is_empty() {
-        "menu".to_string()
+        Uuid::new_v4().simple().to_string()[..8].to_string()
     } else {
         slug
     }

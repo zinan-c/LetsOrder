@@ -11,6 +11,7 @@ import {
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import type { ActivityLog, Participant } from '../types/gathering';
+import { copyText } from '../utils/clipboard';
 import { formatDateTime, toDateTimeLocalValue } from '../utils/dateTime';
 
 function formatAction(log: ActivityLog) {
@@ -95,6 +96,15 @@ export default function HostDashboardPage() {
   const activityLogs = activityQuery.data?.activity_logs ?? [];
   const recentActivityLogs = activityLogs.slice(0, 4);
 
+  async function handleCopyInvite() {
+    try {
+      await copyText(inviteUrl);
+      setHostMessage('Invite link copied.');
+    } catch {
+      setHostMessage('Could not copy invite link.');
+    }
+  }
+
   return (
     <div className="dashboard-grid">
       <PageCard
@@ -107,7 +117,9 @@ export default function HostDashboardPage() {
           <p>Invitation URL</p>
           <a href={inviteUrl}>{inviteUrl}</a>
           <div className="action-row">
-            <button type="button">Copy invite</button>
+            <button type="button" onClick={handleCopyInvite}>
+              Copy invite
+            </button>
             <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
               Enter menu
             </Link>

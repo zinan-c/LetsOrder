@@ -10,7 +10,7 @@ import type { GatheringListItem } from '../types/gathering';
 const fallbackMenus: GatheringListItem[] = [
   {
     id: 'mock-menu',
-    title: mockGathering.title,
+    title: 'mockdata',
     description: mockGathering.description,
     invite_code: mockGathering.inviteCode,
     status: 'active',
@@ -35,10 +35,7 @@ export default function MenusPage() {
     queryFn: listGatherings,
     retry: false,
   });
-  const menus = gatheringsQuery.data?.gatherings.length
-    ? gatheringsQuery.data.gatherings
-    : fallbackMenus;
-  const isUsingFallback = !gatheringsQuery.data?.gatherings.length;
+  const menus = [...(gatheringsQuery.data?.gatherings ?? []), ...fallbackMenus];
   const deleteMutation = useMutation({
     mutationFn: deleteGathering,
     onSuccess: async () => {
@@ -81,7 +78,7 @@ export default function MenusPage() {
             <div className="menu-list-actions">
               <button
                 className="danger-button"
-                disabled={isUsingFallback}
+                disabled={menu.id === 'mock-menu'}
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -94,11 +91,6 @@ export default function MenusPage() {
           </article>
         ))}
       </div>
-      {gatheringsQuery.isError ? (
-        <p className="error">
-          Could not load menus from the API. Showing prototype data.
-        </p>
-      ) : null}
 
       {menuToDelete ? (
         <div

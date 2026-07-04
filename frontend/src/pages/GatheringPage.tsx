@@ -12,7 +12,6 @@ import {
 } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import GatheringSummary from '../components/GatheringSummary';
-import StatusPill from '../components/StatusPill';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
@@ -189,14 +188,6 @@ export default function GatheringPage() {
     };
   }, [currentUser, inviteCode]);
 
-  const editorModeLabel = useMemo(() => {
-    if (canUseApi) {
-      return 'Connected to API';
-    }
-
-    return 'Local prototype mode';
-  }, [canUseApi]);
-
   const ownerOptions = useMemo(() => {
     const names = new Set(
       participants
@@ -363,7 +354,7 @@ export default function GatheringPage() {
       <section>
         <div className="page-heading-row">
           <div>
-            <p className="eyebrow">Menu workspace · {inviteCode}</p>
+            <p className="eyebrow">Menu workspace · {currentInviteCode}</p>
             <h1 className="menu-title">{currentTitle}</h1>
             <p className="lead">
               Add dishes, claim prep work, and keep the family menu tidy before
@@ -421,9 +412,6 @@ export default function GatheringPage() {
         ) : null}
 
         <div className="toolbar">
-          <StatusPill tone={canUseApi ? 'green' : 'neutral'}>
-            {editorModeLabel}
-          </StatusPill>
           <label className="status-filter">
             Status
             <select

@@ -37,6 +37,9 @@ echo "Starting LetsOrder backend on http://localhost:$BACKEND_PORT"
 ) &
 BACKEND_PID=$!
 
+echo "Waiting for backend health check..."
+wait_for_http "http://127.0.0.1:$BACKEND_PORT/health" "Backend"
+
 echo "Starting LetsOrder frontend on http://localhost:$FRONTEND_PORT"
 (
   cd "$ROOT_DIR/frontend"
