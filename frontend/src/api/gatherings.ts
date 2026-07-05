@@ -43,6 +43,10 @@ export interface UploadPhotoResponse {
   photo: Photo;
 }
 
+export interface UpdatePhotoResponse {
+  photo: Photo;
+}
+
 export interface JoinGatheringResponse {
   participant: Participant;
   access_token: string;
@@ -118,5 +122,18 @@ export function uploadPhoto(gatheringId: string, file: File, caption?: string) {
   return apiRequest<UploadPhotoResponse>(`/api/gatherings/${gatheringId}/photos`, {
     method: 'POST',
     body: formData,
+  });
+}
+
+export function updatePhotoCaption(photoId: string, caption: string) {
+  return apiRequest<UpdatePhotoResponse>(`/api/photos/${photoId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ caption }),
+  });
+}
+
+export function deletePhoto(photoId: string) {
+  return apiRequest<UpdatePhotoResponse>(`/api/photos/${photoId}`, {
+    method: 'DELETE',
   });
 }

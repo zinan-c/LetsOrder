@@ -865,6 +865,27 @@ h1 {
   border-radius: 1rem;
 }
 
+.photo-admin-actions,
+.photo-admin-editor {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.photo-admin-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.photo-admin-actions button,
+.photo-admin-editor button {
+  min-height: 2.5rem;
+  padding: 0.65rem 0.8rem;
+}
+
+.photo-admin-actions .danger-button {
+  border-color: #fecaca;
+  color: white;
+}
+
 .photo-coral {
   background: #ffe4e6;
 }
@@ -959,5 +980,37 @@ h1 {
 
   .toolbar-note {
     margin-left: 0;
+  }
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.settings-sidebar {
+  padding: 1.2rem;
+  border: 1px solid #fed7aa;
+  border-radius: 1.4rem;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 18px 44px rgba(154, 52, 18, 0.08);
+}
+
+.settings-nav-item {
+  width: 100%;
+  margin-top: 0.8rem;
+  text-align: left;
+}
+
+.settings-nav-item.active {
+  color: #7c2d12;
+  background: #ffedd5;
+}
+
+@media (max-width: 920px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
   }
 }

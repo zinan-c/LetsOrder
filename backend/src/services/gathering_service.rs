@@ -10,8 +10,8 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         CreateGatheringRequest, CreateGatheringResponse, CreateMenuItemRequest, Gathering,
-        GatheringListItem, JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant,
-        Photo, UpdateGatheringRequest, UpdateMenuItemRequest,
+        GatheringListItem, MenuItem, Participant, Photo, UpdateGatheringRequest,
+        UpdateMenuItemRequest,
     },
 };
 
@@ -135,6 +135,46 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
         ORDER BY g.created_at DESC
         "#,
     )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+pub async fn list_gatherings_for_user(
+    pool: &DbPool,
+    user_id: Uuid,
+) -> AppResult<Vec<GatheringListItem>> {
+    let rows = sqlx::query_as::<_, GatheringListItem>(
+        r#"
+        SELECT
+            g.id,
+            g.title,
+            g.description,
+            g.invite_code,
+            g.status,
+            g.is_locked,
+            g.expires_at,
+            COUNT(DISTINCT m.id) AS item_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'prepared' THEN m.id END) AS prepared_count,
+            COUNT(DISTINCT p.id) AS participant_count,
+            g.created_at,
+            g.updated_at
+        FROM gatherings g
+        LEFT JOIN menu_items m ON m.gathering_id = g.id
+        LEFT JOIN participants p ON p.gathering_id = g.id
+        WHERE g.status != 'archived'
+          AND EXISTS (
+              SELECT 1
+              FROM participants current_participant
+              WHERE current_participant.gathering_id = g.id
+                AND current_participant.user_id = ?
+          )
+        GROUP BY g.id
+        ORDER BY g.created_at DESC
+        "#,
+    )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -271,97 +311,12 @@ pub async fn update_gathering_deadline(
     get_gathering_by_id(pool, gathering_id).await
 }
 
-pub async fn join_gathering(
-    pool: &DbPool,
-    gathering_id: Uuid,
-    payload: JoinGatheringRequest,
-) -> AppResult<JoinGatheringResponse> {
-    if payload.display_name.trim().is_empty() {
-        return Err(AppError::Validation("display_name is required".to_string()));
-    }
-
-    get_gathering_by_id(pool, gathering_id).await?;
-
-    let now = Utc::now();
-    let display_name = payload.display_name.trim();
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        r#"
-        SELECT id
-        FROM participants
-        WHERE gathering_id = ? AND display_name = ?
-        "#,
-    )
-    .bind(gathering_id)
-    .bind(display_name)
-    .fetch_optional(pool)
-    .await?;
-
-    if let Some((participant_id,)) = existing {
-        let access_token = Uuid::new_v4().to_string();
-
-        sqlx::query(
-            r#"
-            UPDATE participants
-            SET access_token_hash = ?, updated_at = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(&access_token)
-        .bind(now)
-        .bind(participant_id)
-        .execute(pool)
-        .await?;
-
-        return Ok(JoinGatheringResponse {
-            participant: get_participant_by_id(pool, participant_id).await?,
-            access_token,
-        });
-    }
-
-    let participant_id = Uuid::new_v4();
-    let access_token = Uuid::new_v4().to_string();
-
-    sqlx::query(
-        r#"
-        INSERT INTO participants (
-            id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
-        )
-        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
-        "#,
-    )
-    .bind(participant_id)
-    .bind(gathering_id)
-    .bind(payload.display_name.trim())
-    .bind(&access_token)
-    .bind(now)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    insert_activity_log(
-        pool,
-        gathering_id,
-        Some(participant_id),
-        "participant_joined",
-        "participant",
-        Some(participant_id),
-        None,
-    )
-    .await?;
-
-    Ok(JoinGatheringResponse {
-        participant: get_participant_by_id(pool, participant_id).await?,
-        access_token,
-    })
-}
-
 pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Participant>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
     let participants = sqlx::query_as::<_, Participant>(
         r#"
-        SELECT id, gathering_id, display_name, role, last_menu_activity_at,
+        SELECT id, gathering_id, user_id, display_name, role, last_menu_activity_at,
                joined_at, created_at, updated_at
         FROM participants
         WHERE gathering_id = ?
@@ -545,6 +500,22 @@ pub async fn update_menu_item(
     touch_participant_menu_activity(pool, payload.updated_by).await?;
 
     get_menu_item_by_id(pool, menu_item_id).await
+}
+
+pub async fn menu_item_gathering_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<Uuid> {
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        r#"
+        SELECT gathering_id
+        FROM menu_items
+        WHERE id = ?
+        "#,
+    )
+    .bind(menu_item_id)
+    .fetch_optional(pool)
+    .await?;
+
+    row.map(|(gathering_id,)| gathering_id)
+        .ok_or(AppError::NotFound)
 }
 
 pub async fn lock_gathering(
@@ -751,6 +722,89 @@ pub async fn upload_photo(
     get_photo_by_id(pool, photo_id).await
 }
 
+pub async fn update_photo_caption(
+    pool: &DbPool,
+    photo_id: Uuid,
+    caption: String,
+    actor_name: Option<String>,
+) -> AppResult<Photo> {
+    ensure_actor_is_admin(actor_name.as_deref())?;
+    let current = get_photo_by_id(pool, photo_id).await?;
+    let now = Utc::now();
+    let caption = caption.trim();
+    let caption = if caption.is_empty() { "Image" } else { caption };
+
+    sqlx::query(
+        r#"
+        UPDATE photos
+        SET caption = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(caption)
+    .bind(now)
+    .bind(photo_id)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        current.gathering_id,
+        None,
+        "photo_caption_updated",
+        "photo",
+        Some(photo_id),
+        Some(format!(
+            "caption: {} -> {}",
+            current.caption.unwrap_or_else(|| "Image".to_string()),
+            caption
+        )),
+    )
+    .await?;
+
+    get_photo_by_id(pool, photo_id).await
+}
+
+pub async fn delete_photo(
+    pool: &DbPool,
+    photo_id: Uuid,
+    actor_name: Option<String>,
+) -> AppResult<Photo> {
+    ensure_actor_is_admin(actor_name.as_deref())?;
+    let photo = get_photo_by_id(pool, photo_id).await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM photos
+        WHERE id = ?
+        "#,
+    )
+    .bind(photo_id)
+    .execute(pool)
+    .await?;
+
+    if let Some(relative_path) = photo.file_url.strip_prefix("/resources/") {
+        let file_path = Path::new(&resource_dir()).join(relative_path);
+        let _ = tokio::fs::remove_file(file_path).await;
+    }
+
+    insert_activity_log(
+        pool,
+        photo.gathering_id,
+        None,
+        "photo_deleted",
+        "photo",
+        Some(photo_id),
+        photo
+            .caption
+            .clone()
+            .map(|caption| format!("caption: {caption}")),
+    )
+    .await?;
+
+    Ok(photo)
+}
+
 async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
     sqlx::query_as::<_, Gathering>(
         r#"
@@ -784,7 +838,7 @@ async fn get_photo_by_id(pool: &DbPool, photo_id: Uuid) -> AppResult<Photo> {
 async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult<Participant> {
     sqlx::query_as::<_, Participant>(
         r#"
-        SELECT id, gathering_id, display_name, role, last_menu_activity_at,
+        SELECT id, gathering_id, user_id, display_name, role, last_menu_activity_at,
                joined_at, created_at, updated_at
         FROM participants
         WHERE id = ?
@@ -909,7 +963,7 @@ async fn ensure_actor_can_manage(
 ) -> AppResult<()> {
     let actor_name = actor_name.ok_or(AppError::Forbidden)?;
 
-    if actor_name == "admin" {
+    if actor_name == "suite-admin" {
         return Ok(());
     }
 
@@ -927,6 +981,13 @@ async fn ensure_actor_can_manage(
 
     match role {
         Some((role,)) if role == "host" => Ok(()),
+        _ => Err(AppError::Forbidden),
+    }
+}
+
+fn ensure_actor_is_admin(actor_name: Option<&str>) -> AppResult<()> {
+    match actor_name {
+        Some("suite-admin") => Ok(()),
         _ => Err(AppError::Forbidden),
     }
 }

@@ -41,6 +41,7 @@ export interface CreateGatheringRequest {
 export interface Participant {
   id: string;
   gathering_id: string;
+  user_id?: string | null;
   display_name: string;
   role: string;
   last_menu_activity_at?: string | null;

@@ -7,12 +7,13 @@ use axum::{
 use uuid::Uuid;
 
 use crate::{
-    errors::AppResult,
+    errors::{AppError, AppResult},
     models::{
-        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest, UpdateGatheringRequest,
+        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest,
+        UpdateGatheringRequest, UpdatePhotoRequest,
     },
     routes::AppState,
-    services::gathering_service,
+    services::{auth_service, gathering_service},
 };
 
 pub fn router() -> Router<AppState> {
@@ -40,15 +41,25 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-async fn list_gatherings(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
-    let gatherings = gathering_service::list_gatherings(&state.pool).await?;
+async fn list_gatherings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let user = require_user(&state, &headers).await?;
+    let gatherings = if user.role == "admin" {
+        gathering_service::list_gatherings(&state.pool).await?
+    } else {
+        gathering_service::list_gatherings_for_user(&state.pool, user.id).await?
+    };
     Ok(Json(serde_json::json!({ "gatherings": gatherings })))
 }
 
 async fn create_gathering(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<CreateGatheringRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    ensure_admin(&state, &headers).await?;
     let gathering = gathering_service::create_gathering(&state.pool, payload).await?;
     Ok(Json(serde_json::json!(gathering)))
 }
@@ -67,9 +78,12 @@ async fn delete_gathering(
     Path(gathering_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering =
-        gathering_service::archive_gathering(&state.pool, gathering_id, actor_name(&headers))
-            .await?;
+    let gathering = gathering_service::archive_gathering(
+        &state.pool,
+        gathering_id,
+        actor_name(&state, &headers).await,
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -83,7 +97,7 @@ async fn update_gathering(
         &state.pool,
         gathering_id,
         payload,
-        actor_name(&headers),
+        actor_name(&state, &headers).await,
     )
     .await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
@@ -94,18 +108,29 @@ async fn lock_gathering(
     Path(gathering_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering =
-        gathering_service::lock_gathering(&state.pool, gathering_id, actor_name(&headers)).await?;
+    let gathering = gathering_service::lock_gathering(
+        &state.pool,
+        gathering_id,
+        actor_name(&state, &headers).await,
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
 async fn join_gathering(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
     Json(payload): Json<JoinGatheringRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let participant = gathering_service::join_gathering(&state.pool, gathering_id, payload).await?;
-    Ok(Json(serde_json::json!(participant)))
+    let _ = payload;
+    let user = require_user(&state, &headers).await?;
+    let participant =
+        auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
+    Ok(Json(serde_json::json!({
+        "participant": participant,
+        "access_token": ""
+    })))
 }
 
 async fn list_participants(
@@ -138,9 +163,13 @@ async fn upload_photo(
     headers: HeaderMap,
     multipart: Multipart,
 ) -> AppResult<Json<serde_json::Value>> {
-    let photo =
-        gathering_service::upload_photo(&state.pool, gathering_id, actor_name(&headers), multipart)
-            .await?;
+    let photo = gathering_service::upload_photo(
+        &state.pool,
+        gathering_id,
+        actor_name(&state, &headers).await,
+        multipart,
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
 
@@ -155,8 +184,13 @@ async fn list_menu_items(
 async fn create_menu_item(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
-    Json(payload): Json<CreateMenuItemRequest>,
+    headers: HeaderMap,
+    Json(mut payload): Json<CreateMenuItemRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let user = require_user(&state, &headers).await?;
+    let participant =
+        auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
+    payload.created_by = participant.id;
     let menu_item = gathering_service::create_menu_item(&state.pool, gathering_id, payload).await?;
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
 }
@@ -165,20 +199,95 @@ pub fn menu_item_router() -> Router<AppState> {
     Router::new().route("/{menu_item_id}", patch(update_menu_item))
 }
 
+pub fn photo_router() -> Router<AppState> {
+    Router::new().route("/{photo_id}", patch(update_photo).delete(delete_photo))
+}
+
 async fn update_menu_item(
     State(state): State<AppState>,
     Path(menu_item_id): Path<Uuid>,
-    Json(payload): Json<crate::models::UpdateMenuItemRequest>,
+    headers: HeaderMap,
+    Json(mut payload): Json<crate::models::UpdateMenuItemRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let user = require_user(&state, &headers).await?;
+    let gathering_id = gathering_service::menu_item_gathering_id(&state.pool, menu_item_id).await?;
+    let participant =
+        auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
+    payload.updated_by = participant.id;
     let menu_item = gathering_service::update_menu_item(&state.pool, menu_item_id, payload).await?;
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
 }
 
-fn actor_name(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-letsorder-user")
+async fn update_photo(
+    State(state): State<AppState>,
+    Path(photo_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdatePhotoRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let photo = gathering_service::update_photo_caption(
+        &state.pool,
+        photo_id,
+        payload.caption,
+        actor_name(&state, &headers).await,
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "photo": photo })))
+}
+
+async fn delete_photo(
+    State(state): State<AppState>,
+    Path(photo_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let photo =
+        gathering_service::delete_photo(&state.pool, photo_id, actor_name(&state, &headers).await)
+            .await?;
+    Ok(Json(serde_json::json!({ "photo": photo })))
+}
+
+async fn ensure_admin(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
+    let user = require_user(state, headers).await?;
+
+    if user.role == "admin" {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
+async fn require_user(state: &AppState, headers: &HeaderMap) -> AppResult<crate::models::User> {
+    let Some(token) = optional_bearer_token(headers) else {
+        return Err(AppError::Forbidden);
+    };
+
+    auth_service::user_from_token(&state.pool, token).await
+}
+
+async fn actor_name(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let token = headers
+        .get("authorization")
         .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    auth_service::user_from_token(&state.pool, token)
+        .await
+        .ok()
+        .map(|user| {
+            if user.role == "admin" {
+                "suite-admin".to_string()
+            } else {
+                user.display_name
+            }
+        })
+}
+
+fn optional_bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }

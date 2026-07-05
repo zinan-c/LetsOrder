@@ -13,7 +13,7 @@ import StatusPill from '../components/StatusPill';
 import type { ActivityLog, Participant } from '../types/gathering';
 import { copyText } from '../utils/clipboard';
 import { formatDateTime, toDateTimeLocalValue } from '../utils/dateTime';
-import { getCookieUser, USER_CHANGED_EVENT } from '../utils/user';
+import { getCookieUser, getCurrentUser, USER_CHANGED_EVENT } from '../utils/user';
 
 type ActivityDetail = {
   field?: string;
@@ -114,7 +114,7 @@ export default function HostDashboardPage() {
     'copy' | 'deadline' | 'lock' | null
   >(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
-  const isAdmin = currentUser === 'admin';
+  const isAdmin = getCurrentUser()?.role === 'admin';
 
   function showButtonFeedback(feedback: 'copy' | 'deadline' | 'lock') {
     setButtonFeedback(feedback);
@@ -183,8 +183,8 @@ export default function HostDashboardPage() {
 
   useEffect(() => {
     function handleUserChanged(event: Event) {
-      const name = event instanceof CustomEvent ? String(event.detail) : '';
-      setCurrentUser(name);
+      const user = event instanceof CustomEvent ? event.detail : null;
+      setCurrentUser(user?.display_name ?? '');
     }
 
     window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);

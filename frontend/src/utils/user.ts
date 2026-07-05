@@ -1,31 +1,60 @@
-const USER_COOKIE_NAME = 'user';
+import type { User } from '../types/auth';
+
+const AUTH_TOKEN_KEY = 'letsorder:auth_token';
+const AUTH_USER_KEY = 'letsorder:auth_user';
 export const USER_CHANGED_EVENT = 'letsorder:user-changed';
 
-export function getCookieUser() {
-  const rawValue = document.cookie
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${USER_COOKIE_NAME}=`))
-    ?.slice(USER_COOKIE_NAME.length + 1);
-
-  return rawValue ? decodeURIComponent(rawValue) : '';
+export function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY) ?? '';
 }
 
-export function setCookieUser(user: string) {
-  document.cookie = `${USER_COOKIE_NAME}=${encodeURIComponent(user)}; path=/; max-age=2592000; SameSite=Lax`;
+export function setAuthSession(token: string, user: User) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  notifyUserChanged(user);
 }
 
-export function notifyUserChanged(user: string) {
+export function getCurrentUser(): User | null {
+  const rawValue = localStorage.getItem(AUTH_USER_KEY);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawValue) as User;
+  } catch {
+    return null;
+  }
+}
+
+export function updateStoredUser(user: User) {
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  notifyUserChanged(user);
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  notifyUserChanged(null);
+}
+
+export function notifyUserChanged(user: User | null) {
   window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: user }));
 }
 
-export function syncUserFromQuery(search: string) {
-  const queryUser = new URLSearchParams(search).get(USER_COOKIE_NAME);
+export function getCookieUser() {
+  return getCurrentUser()?.display_name ?? '';
+}
 
-  if (queryUser === null) {
-    return getCookieUser();
+export function setCookieUser(user: string) {
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    return;
   }
 
-  setCookieUser(queryUser.trim());
-  return queryUser.trim();
+  updateStoredUser({ ...currentUser, display_name: user });
+}
+
+export function syncUserFromQuery() {
+  return getCookieUser();
 }

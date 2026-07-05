@@ -18,7 +18,6 @@ import type { MenuItem, MenuItemStatus } from '../types/menu';
 import { formatDateTime } from '../utils/dateTime';
 import {
   getCookieUser,
-  notifyUserChanged,
   setCookieUser,
   USER_CHANGED_EVENT,
 } from '../utils/user';
@@ -128,7 +127,8 @@ export default function GatheringPage() {
 
   useEffect(() => {
     function handleUserChanged(event: Event) {
-      const name = event instanceof CustomEvent ? String(event.detail) : '';
+      const user = event instanceof CustomEvent ? event.detail : null;
+      const name = user?.display_name ?? '';
       setCurrentUser(name);
       setDisplayName(name);
       setParticipantId(null);
@@ -297,7 +297,6 @@ export default function GatheringPage() {
         response.access_token,
       );
       setCookieUser(name);
-      notifyUserChanged(name);
       setCurrentUser(name);
       setParticipantId(response.participant.id);
       setParticipants((items) => [response.participant, ...items]);

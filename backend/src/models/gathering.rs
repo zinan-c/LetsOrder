@@ -59,6 +59,7 @@ pub struct UpdateGatheringRequest {
 pub struct Participant {
     pub id: Uuid,
     pub gathering_id: Uuid,
+    pub user_id: Option<Uuid>,
     pub display_name: String,
     pub role: String,
     pub last_menu_activity_at: Option<DateTime<Utc>>,
@@ -68,15 +69,7 @@ pub struct Participant {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct JoinGatheringRequest {
-    pub display_name: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct JoinGatheringResponse {
-    pub participant: Participant,
-    pub access_token: String,
-}
+pub struct JoinGatheringRequest {}
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct MenuItem {
@@ -146,4 +139,9 @@ pub struct Photo {
     pub taken_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePhotoRequest {
+    pub caption: String,
 }

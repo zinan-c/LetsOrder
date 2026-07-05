@@ -2,20 +2,26 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import {
+  deletePhoto,
   getGatheringByInviteCode,
   listPhotos,
+  updatePhotoCaption,
   uploadPhoto,
 } from '../api/gatherings';
 import { listMenuItems } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
+import { getCurrentUser } from '../utils/user';
 
 export default function ReviewPage() {
   const { inviteCode } = useParams();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [photoTitle, setPhotoTitle] = useState('');
+  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
+  const [editingPhotoTitle, setEditingPhotoTitle] = useState('');
+  const isAdmin = getCurrentUser()?.role === 'admin';
   const gatheringQuery = useQuery({
     queryKey: ['gathering', inviteCode],
     queryFn: () => getGatheringByInviteCode(inviteCode ?? ''),
@@ -47,6 +53,23 @@ export default function ReviewPage() {
       await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
     },
   });
+  const photoCaptionMutation = useMutation({
+    mutationFn: ({ photoId, caption }: { photoId: string; caption: string }) =>
+      updatePhotoCaption(photoId, caption),
+    onSuccess: async () => {
+      setEditingPhotoId(null);
+      setEditingPhotoTitle('');
+      await queryClient.invalidateQueries({ queryKey: ['photos', gathering?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
+    },
+  });
+  const photoDeleteMutation = useMutation({
+    mutationFn: deletePhoto,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['photos', gathering?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
+    },
+  });
   const uploadedPhotos = photosQuery.data?.photos ?? [];
 
   function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -60,6 +83,28 @@ export default function ReviewPage() {
       caption: photoTitle.trim() || undefined,
     });
     event.target.value = '';
+  }
+
+  function startEditingPhoto(photoId: string, caption?: string | null) {
+    setEditingPhotoId(photoId);
+    setEditingPhotoTitle(caption ?? 'Image');
+  }
+
+  function savePhotoTitle() {
+    if (!editingPhotoId) {
+      return;
+    }
+
+    photoCaptionMutation.mutate({
+      photoId: editingPhotoId,
+      caption: editingPhotoTitle,
+    });
+  }
+
+  function confirmDeletePhoto(photoId: string) {
+    if (window.confirm('Delete this photo?')) {
+      photoDeleteMutation.mutate(photoId);
+    }
   }
 
   if (gathering && !gathering.is_locked) {
@@ -149,6 +194,12 @@ export default function ReviewPage() {
         {photoUploadMutation.isError ? (
           <p className="error">Could not upload this photo.</p>
         ) : null}
+        {photoCaptionMutation.isError ? (
+          <p className="error">Could not update this photo title.</p>
+        ) : null}
+        {photoDeleteMutation.isError ? (
+          <p className="error">Could not delete this photo.</p>
+        ) : null}
         {uploadedPhotos.length === 0 ? (
           <p className="empty-panel-note">
             Are you ready to take notes of the photos?
@@ -162,7 +213,52 @@ export default function ReviewPage() {
                   alt={photo.caption ?? 'Uploaded gathering memory'}
                   src={photo.file_url}
                 />
-                <p>{photo.caption ?? 'Uploaded memory'}</p>
+                {editingPhotoId === photo.id ? (
+                  <div className="photo-admin-editor">
+                    <input
+                      value={editingPhotoTitle}
+                      onChange={(event) => setEditingPhotoTitle(event.target.value)}
+                    />
+                    <div className="action-row">
+                      <button
+                        disabled={photoCaptionMutation.isPending}
+                        type="button"
+                        onClick={savePhotoTitle}
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={photoCaptionMutation.isPending}
+                        type="button"
+                        onClick={() => setEditingPhotoId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p>{photo.caption ?? 'Image'}</p>
+                )}
+                {isAdmin && editingPhotoId !== photo.id ? (
+                  <div className="photo-admin-actions">
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => startEditingPhoto(photo.id, photo.caption)}
+                    >
+                      Edit title
+                    </button>
+                    <button
+                      className="ghost-button danger-button"
+                      disabled={photoDeleteMutation.isPending}
+                      type="button"
+                      onClick={() => confirmDeletePhoto(photo.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>

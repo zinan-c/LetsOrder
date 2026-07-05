@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod gatherings;
 pub mod health;
 
@@ -18,8 +19,10 @@ pub fn router(pool: DbPool) -> Router {
 
     Router::new()
         .route("/health", get(health::health_check))
+        .nest("/api/auth", auth::router())
         .nest("/api/gatherings", gatherings::router())
         .nest("/api/menu-items", gatherings::menu_item_router())
+        .nest("/api/photos", gatherings::photo_router())
         .nest_service("/resources", ServeDir::new(resource_dir()))
         .with_state(state)
 }

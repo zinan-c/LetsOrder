@@ -15,7 +15,7 @@ import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { GatheringListItem } from '../types/gathering';
-import { syncUserFromQuery, USER_CHANGED_EVENT } from '../utils/user';
+import { getCurrentUser, syncUserFromQuery, USER_CHANGED_EVENT } from '../utils/user';
 
 const fallbackMenus: GatheringListItem[] = [
   {
@@ -38,12 +38,9 @@ export default function MenusPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const initialUser = useMemo(
-    () => syncUserFromQuery(location.search),
-    [location.search],
-  );
+  const initialUser = useMemo(() => syncUserFromQuery(), [location.search]);
   const [currentUser, setCurrentUser] = useState(initialUser);
-  const isAdmin = currentUser === 'admin';
+  const isAdmin = getCurrentUser()?.role === 'admin';
   const [menuToDelete, setMenuToDelete] = useState<GatheringListItem | null>(
     null,
   );
@@ -87,8 +84,8 @@ export default function MenusPage() {
 
   useEffect(() => {
     function handleUserChanged(event: Event) {
-      const name = event instanceof CustomEvent ? String(event.detail) : '';
-      setCurrentUser(name);
+      const user = event instanceof CustomEvent ? event.detail : null;
+      setCurrentUser(user?.display_name ?? '');
     }
 
     window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
