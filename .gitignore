@@ -13,6 +13,7 @@
 *.db-shm
 *.db-wal
 /backend/uploads/
+/backend/resources/uploads/
 
 # Environment
 .env

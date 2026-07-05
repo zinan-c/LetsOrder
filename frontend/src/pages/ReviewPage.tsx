@@ -1,6 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useRef, type ChangeEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { getGatheringByInviteCode } from '../api/gatherings';
+import {
+  getGatheringByInviteCode,
+  listPhotos,
+  uploadPhoto,
+} from '../api/gatherings';
 import { listMenuItems } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import PageCard from '../components/PageCard';
@@ -9,6 +14,8 @@ import { mockPhotos } from '../data/mockGathering';
 
 export default function ReviewPage() {
   const { inviteCode } = useParams();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const gatheringQuery = useQuery({
     queryKey: ['gathering', inviteCode],
     queryFn: () => getGatheringByInviteCode(inviteCode ?? ''),
@@ -25,6 +32,30 @@ export default function ReviewPage() {
   const finalMenuItems =
     menuItemsQuery.data?.menu_items.filter((item) => item.status !== 'cancelled') ??
     [];
+  const photosQuery = useQuery({
+    queryKey: ['photos', gathering?.id],
+    queryFn: () => listPhotos(gathering?.id ?? ''),
+    enabled: Boolean(gathering?.id && gathering?.is_locked),
+    retry: false,
+  });
+  const photoUploadMutation = useMutation({
+    mutationFn: (file: File) => uploadPhoto(gathering?.id ?? '', file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['photos', gathering?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
+    },
+  });
+  const uploadedPhotos = photosQuery.data?.photos ?? [];
+
+  function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !gathering?.id) {
+      return;
+    }
+
+    photoUploadMutation.mutate(file);
+    event.target.value = '';
+  }
 
   if (gathering && !gathering.is_locked) {
     return (
@@ -83,9 +114,31 @@ export default function ReviewPage() {
             <p className="card-kicker">Photo wall</p>
             <h2>Little memories, neatly kept</h2>
           </div>
-          <button type="button">Upload photos</button>
+          <button type="button" onClick={() => fileInputRef.current?.click()}>
+            {photoUploadMutation.isPending ? 'Uploading...' : 'Upload photos'}
+          </button>
+          <input
+            ref={fileInputRef}
+            accept="image/*"
+            hidden
+            type="file"
+            onChange={handlePhotoSelected}
+          />
         </div>
+        {photoUploadMutation.isError ? (
+          <p className="error">Could not upload this photo.</p>
+        ) : null}
         <div className="photo-grid">
+          <article className="photo-card uploaded-photo-card">
+            <img alt="Mock gathering memory" src="/resources/mock/mock-gathering-photo.svg" />
+            <p>Mock gathering photo</p>
+          </article>
+          {uploadedPhotos.map((photo) => (
+            <article className="photo-card uploaded-photo-card" key={photo.id}>
+              <img alt={photo.caption ?? 'Uploaded gathering memory'} src={photo.file_url} />
+              <p>{photo.caption ?? 'Uploaded memory'}</p>
+            </article>
+          ))}
           {mockPhotos.map((photo) => (
             <article className={`photo-card photo-${photo.color}`} key={photo.id}>
               <div className="photo-blob" />

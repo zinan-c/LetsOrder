@@ -28,6 +28,20 @@ export default function DishCard({
       <p className="dish-owner">
         {item.owner_name ? `Owner: ${item.owner_name}` : 'Owner: Unassigned'}
       </p>
+      <div className="dish-reference">
+        {item.reference_url ? (
+          <a
+            className="button-link secondary mini-link-button"
+            href={item.reference_url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Link
+          </a>
+        ) : (
+          <span>—</span>
+        )}
+      </div>
       <StatusPill tone={toneByStatus[item.status]}>{item.status}</StatusPill>
       {readOnly ? null : (
         <button

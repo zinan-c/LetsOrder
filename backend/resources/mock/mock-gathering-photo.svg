@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-label="Mock gathering table photo">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff7ed"/>
+      <stop offset="1" stop-color="#fed7aa"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="420" rx="36" fill="url(#bg)"/>
+  <circle cx="320" cy="210" r="104" fill="#ea580c" opacity="0.16"/>
+  <circle cx="320" cy="210" r="76" fill="#fffaf3" stroke="#fb923c" stroke-width="10"/>
+  <circle cx="242" cy="166" r="34" fill="#dcfce7"/>
+  <circle cx="402" cy="166" r="34" fill="#fee2e2"/>
+  <circle cx="242" cy="254" r="34" fill="#fef3c7"/>
+  <circle cx="402" cy="254" r="34" fill="#dbeafe"/>
+  <text x="320" y="218" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="800" fill="#9a3412">LetsOrder</text>
+  <text x="320" y="266" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#7c2d12">mock photo</text>
+</svg>

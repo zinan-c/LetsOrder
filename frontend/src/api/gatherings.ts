@@ -5,6 +5,7 @@ import type {
   Gathering,
   GatheringListItem,
   Participant,
+  Photo,
 } from '../types/gathering';
 
 export interface CreateGatheringResponse {
@@ -32,6 +33,14 @@ export interface ListParticipantsResponse {
 
 export interface ListActivityLogsResponse {
   activity_logs: ActivityLog[];
+}
+
+export interface ListPhotosResponse {
+  photos: Photo[];
+}
+
+export interface UploadPhotoResponse {
+  photo: Photo;
 }
 
 export interface JoinGatheringResponse {
@@ -93,4 +102,21 @@ export function listActivityLogs(gatheringId: string) {
   return apiRequest<ListActivityLogsResponse>(
     `/api/gatherings/${gatheringId}/activity-logs`,
   );
+}
+
+export function listPhotos(gatheringId: string) {
+  return apiRequest<ListPhotosResponse>(`/api/gatherings/${gatheringId}/photos`);
+}
+
+export function uploadPhoto(gatheringId: string, file: File, caption?: string) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (caption) {
+    formData.append('caption', caption);
+  }
+
+  return apiRequest<UploadPhotoResponse>(`/api/gatherings/${gatheringId}/photos`, {
+    method: 'POST',
+    body: formData,
+  });
 }

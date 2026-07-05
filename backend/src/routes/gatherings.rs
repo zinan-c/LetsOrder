@@ -1,6 +1,7 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
+    http::HeaderMap,
     routing::{get, patch, post},
 };
 use uuid::Uuid;
@@ -28,6 +29,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{gathering_id}/participants",
             post(join_gathering).get(list_participants),
+        )
+        .route(
+            "/{gathering_id}/photos",
+            get(list_photos).post(upload_photo),
         )
         .route(
             "/{gathering_id}/menu-items",
@@ -60,26 +65,37 @@ async fn get_gathering(
 async fn delete_gathering(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering = gathering_service::archive_gathering(&state.pool, gathering_id).await?;
+    let gathering =
+        gathering_service::archive_gathering(&state.pool, gathering_id, actor_name(&headers))
+            .await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
 async fn update_gathering(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
     Json(payload): Json<UpdateGatheringRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering =
-        gathering_service::update_gathering_deadline(&state.pool, gathering_id, payload).await?;
+    let gathering = gathering_service::update_gathering_deadline(
+        &state.pool,
+        gathering_id,
+        payload,
+        actor_name(&headers),
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
 async fn lock_gathering(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering = gathering_service::lock_gathering(&state.pool, gathering_id).await?;
+    let gathering =
+        gathering_service::lock_gathering(&state.pool, gathering_id, actor_name(&headers)).await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -106,6 +122,26 @@ async fn list_activity_logs(
 ) -> AppResult<Json<serde_json::Value>> {
     let activity_logs = gathering_service::list_activity_logs(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "activity_logs": activity_logs })))
+}
+
+async fn list_photos(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let photos = gathering_service::list_photos(&state.pool, gathering_id).await?;
+    Ok(Json(serde_json::json!({ "photos": photos })))
+}
+
+async fn upload_photo(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> AppResult<Json<serde_json::Value>> {
+    let photo =
+        gathering_service::upload_photo(&state.pool, gathering_id, actor_name(&headers), multipart)
+            .await?;
+    Ok(Json(serde_json::json!({ "photo": photo })))
 }
 
 async fn list_menu_items(
@@ -136,4 +172,13 @@ async fn update_menu_item(
 ) -> AppResult<Json<serde_json::Value>> {
     let menu_item = gathering_service::update_menu_item(&state.pool, menu_item_id, payload).await?;
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
+}
+
+fn actor_name(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-letsorder-user")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }

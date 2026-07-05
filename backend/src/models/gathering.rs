@@ -89,6 +89,7 @@ pub struct MenuItem {
     pub quantity: i64,
     pub unit: Option<String>,
     pub owner_name: Option<String>,
+    pub reference_url: Option<String>,
     pub note: Option<String>,
     pub status: String,
     pub created_at: DateTime<Utc>,
@@ -103,6 +104,7 @@ pub struct CreateMenuItemRequest {
     pub quantity: Option<i64>,
     pub unit: Option<String>,
     pub owner_name: Option<String>,
+    pub reference_url: Option<String>,
     pub note: Option<String>,
     pub status: Option<String>,
 }
@@ -115,6 +117,7 @@ pub struct UpdateMenuItemRequest {
     pub quantity: Option<i64>,
     pub unit: Option<String>,
     pub owner_name: Option<String>,
+    pub reference_url: Option<String>,
     pub note: Option<String>,
     pub status: Option<String>,
 }
@@ -130,4 +133,17 @@ pub struct ActivityLog {
     pub target_id: Option<Uuid>,
     pub detail: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct Photo {
+    pub id: Uuid,
+    pub gathering_id: Uuid,
+    pub uploaded_by: Uuid,
+    pub file_url: String,
+    pub thumbnail_url: Option<String>,
+    pub caption: Option<String>,
+    pub taken_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

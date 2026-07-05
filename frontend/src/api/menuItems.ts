@@ -16,6 +16,7 @@ export interface CreateMenuItemPayload {
   quantity?: number;
   unit?: string;
   owner_name?: string;
+  reference_url?: string;
   note?: string;
   status?: MenuItemStatus;
 }
@@ -27,6 +28,7 @@ export interface UpdateMenuItemPayload {
   quantity?: number;
   unit?: string;
   owner_name?: string;
+  reference_url?: string;
   note?: string;
   status?: MenuItemStatus;
 }

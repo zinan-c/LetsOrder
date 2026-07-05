@@ -1,4 +1,8 @@
+use std::path::Path;
+
+use axum::extract::Multipart;
 use chrono::Utc;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
@@ -7,7 +11,7 @@ use crate::{
     models::{
         CreateGatheringRequest, CreateGatheringResponse, CreateMenuItemRequest, Gathering,
         GatheringListItem, JoinGatheringRequest, JoinGatheringResponse, MenuItem, Participant,
-        UpdateGatheringRequest, UpdateMenuItemRequest,
+        Photo, UpdateGatheringRequest, UpdateMenuItemRequest,
     },
 };
 
@@ -137,7 +141,13 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
     Ok(rows)
 }
 
-pub async fn archive_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
+pub async fn archive_gathering(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_name: Option<String>,
+) -> AppResult<Gathering> {
+    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
+
     let now = Utc::now();
 
     let result = sqlx::query(
@@ -177,7 +187,9 @@ pub async fn update_gathering_deadline(
     pool: &DbPool,
     gathering_id: Uuid,
     payload: UpdateGatheringRequest,
+    actor_name: Option<String>,
 ) -> AppResult<Gathering> {
+    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
     let current = get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();
@@ -271,6 +283,41 @@ pub async fn join_gathering(
     get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();
+    let display_name = payload.display_name.trim();
+    let existing: Option<(Uuid,)> = sqlx::query_as(
+        r#"
+        SELECT id
+        FROM participants
+        WHERE gathering_id = ? AND display_name = ?
+        "#,
+    )
+    .bind(gathering_id)
+    .bind(display_name)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some((participant_id,)) = existing {
+        let access_token = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            r#"
+            UPDATE participants
+            SET access_token_hash = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&access_token)
+        .bind(now)
+        .bind(participant_id)
+        .execute(pool)
+        .await?;
+
+        return Ok(JoinGatheringResponse {
+            participant: get_participant_by_id(pool, participant_id).await?,
+            access_token,
+        });
+    }
+
     let participant_id = Uuid::new_v4();
     let access_token = Uuid::new_v4().to_string();
 
@@ -334,7 +381,7 @@ pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec
     let items = sqlx::query_as::<_, MenuItem>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
-               unit, owner_name, note, status, created_at, updated_at
+               unit, owner_name, reference_url, note, status, created_at, updated_at
         FROM menu_items
         WHERE gathering_id = ?
         ORDER BY created_at ASC
@@ -369,9 +416,9 @@ pub async fn create_menu_item(
         r#"
         INSERT INTO menu_items (
             id, gathering_id, created_by, name, category, quantity, unit,
-            owner_name, note, status, created_at, updated_at
+            owner_name, reference_url, note, status, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(menu_item_id)
@@ -382,6 +429,7 @@ pub async fn create_menu_item(
     .bind(quantity)
     .bind(payload.unit.as_deref().map(str::trim))
     .bind(payload.owner_name.as_deref().map(str::trim))
+    .bind(payload.reference_url.as_deref().map(str::trim))
     .bind(payload.note.as_deref().map(str::trim))
     .bind(status)
     .bind(now)
@@ -435,6 +483,10 @@ pub async fn update_menu_item(
         .owner_name
         .or_else(|| current.owner_name.clone())
         .map(|value| value.trim().to_string());
+    let reference_url = payload
+        .reference_url
+        .or_else(|| current.reference_url.clone())
+        .map(|value| value.trim().to_string());
     let note = payload
         .note
         .or_else(|| current.note.clone())
@@ -451,6 +503,7 @@ pub async fn update_menu_item(
             quantity = ?,
             unit = ?,
             owner_name = ?,
+            reference_url = ?,
             note = ?,
             status = ?,
             updated_at = ?
@@ -463,6 +516,7 @@ pub async fn update_menu_item(
     .bind(quantity)
     .bind(unit.as_deref())
     .bind(owner_name.as_deref())
+    .bind(reference_url.as_deref())
     .bind(note.as_deref())
     .bind(&status)
     .bind(now)
@@ -482,6 +536,7 @@ pub async fn update_menu_item(
             quantity,
             unit,
             owner_name,
+            reference_url,
             note,
             status,
         },
@@ -492,7 +547,12 @@ pub async fn update_menu_item(
     get_menu_item_by_id(pool, menu_item_id).await
 }
 
-pub async fn lock_gathering(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
+pub async fn lock_gathering(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_name: Option<String>,
+) -> AppResult<Gathering> {
+    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
     get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();
@@ -560,6 +620,132 @@ pub async fn list_activity_logs(
     Ok(logs)
 }
 
+pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Photo>> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let photos = sqlx::query_as::<_, Photo>(
+        r#"
+        SELECT id, gathering_id, uploaded_by, file_url, thumbnail_url, caption,
+               taken_at, created_at, updated_at
+        FROM photos
+        WHERE gathering_id = ?
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(gathering_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(photos)
+}
+
+pub async fn upload_photo(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_name: Option<String>,
+    mut multipart: Multipart,
+) -> AppResult<Photo> {
+    get_gathering_by_id(pool, gathering_id).await?;
+
+    let actor_name = actor_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(AppError::Forbidden)?;
+    let uploaded_by = get_or_create_participant_by_name(pool, gathering_id, actor_name).await?;
+    let mut caption: Option<String> = None;
+    let mut file_name: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| AppError::Validation(format!("invalid multipart payload: {error}")))?
+    {
+        let field_name = field.name().unwrap_or_default().to_string();
+
+        match field_name.as_str() {
+            "caption" => {
+                caption = Some(field.text().await.map_err(|error| {
+                    AppError::Validation(format!("invalid caption field: {error}"))
+                })?);
+            }
+            "file" => {
+                file_name = field.file_name().map(ToOwned::to_owned);
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|error| {
+                            AppError::Validation(format!("invalid file field: {error}"))
+                        })?
+                        .to_vec(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let file_bytes = file_bytes.ok_or_else(|| AppError::Validation("file is required".into()))?;
+    let extension = file_name
+        .as_deref()
+        .and_then(|name| Path::new(name).extension())
+        .and_then(|extension| extension.to_str())
+        .map(str::to_lowercase)
+        .filter(|extension| matches!(extension.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif"))
+        .unwrap_or_else(|| "jpg".to_string());
+    let now = Utc::now();
+    let photo_id = Uuid::new_v4();
+    let stored_file_name = format!("{}.{}", photo_id.simple(), extension);
+    let resource_dir = resource_dir();
+    let upload_dir = Path::new(&resource_dir).join("uploads");
+    tokio::fs::create_dir_all(&upload_dir)
+        .await
+        .map_err(|error| AppError::Validation(format!("could not create upload dir: {error}")))?;
+
+    let file_path = upload_dir.join(&stored_file_name);
+    let mut file = tokio::fs::File::create(&file_path)
+        .await
+        .map_err(|error| AppError::Validation(format!("could not create upload file: {error}")))?;
+    file.write_all(&file_bytes)
+        .await
+        .map_err(|error| AppError::Validation(format!("could not write upload file: {error}")))?;
+
+    let file_url = format!("/resources/uploads/{stored_file_name}");
+
+    sqlx::query(
+        r#"
+        INSERT INTO photos (
+            id, gathering_id, uploaded_by, file_url, thumbnail_url, caption,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+        "#,
+    )
+    .bind(photo_id)
+    .bind(gathering_id)
+    .bind(uploaded_by)
+    .bind(&file_url)
+    .bind(caption.as_deref().map(str::trim))
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(uploaded_by),
+        "photo_uploaded",
+        "photo",
+        Some(photo_id),
+        Some(serde_json::json!({ "file_url": file_url }).to_string()),
+    )
+    .await?;
+
+    get_photo_by_id(pool, photo_id).await
+}
+
 async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
     sqlx::query_as::<_, Gathering>(
         r#"
@@ -570,6 +756,21 @@ async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gat
         "#,
     )
     .bind(gathering_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+async fn get_photo_by_id(pool: &DbPool, photo_id: Uuid) -> AppResult<Photo> {
+    sqlx::query_as::<_, Photo>(
+        r#"
+        SELECT id, gathering_id, uploaded_by, file_url, thumbnail_url, caption,
+               taken_at, created_at, updated_at
+        FROM photos
+        WHERE id = ?
+        "#,
+    )
+    .bind(photo_id)
     .fetch_optional(pool)
     .await?
     .ok_or(AppError::NotFound)
@@ -590,11 +791,67 @@ async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult
     .ok_or(AppError::NotFound)
 }
 
+async fn get_or_create_participant_by_name(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    display_name: &str,
+) -> AppResult<Uuid> {
+    if let Some((participant_id,)) = sqlx::query_as::<_, (Uuid,)>(
+        r#"
+        SELECT id
+        FROM participants
+        WHERE gathering_id = ? AND display_name = ?
+        "#,
+    )
+    .bind(gathering_id)
+    .bind(display_name)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(participant_id);
+    }
+
+    let now = Utc::now();
+    let participant_id = Uuid::new_v4();
+    let access_token = Uuid::new_v4().to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO participants (
+            id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(participant_id)
+    .bind(gathering_id)
+    .bind(display_name)
+    .bind(&access_token)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(participant_id),
+        "participant_joined",
+        "participant",
+        Some(participant_id),
+        None,
+    )
+    .await?;
+
+    Ok(participant_id)
+}
+
 async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<MenuItem> {
     sqlx::query_as::<_, MenuItem>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
-               unit, owner_name, note, status, created_at, updated_at
+               unit, owner_name, reference_url, note, status, created_at, updated_at
         FROM menu_items
         WHERE id = ?
         "#,
@@ -638,6 +895,35 @@ async fn ensure_gathering_editable(pool: &DbPool, gathering_id: Uuid) -> AppResu
     }
 
     Ok(())
+}
+
+async fn ensure_actor_can_manage(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_name: Option<&str>,
+) -> AppResult<()> {
+    let actor_name = actor_name.ok_or(AppError::Forbidden)?;
+
+    if actor_name == "admin" {
+        return Ok(());
+    }
+
+    let role: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT role
+        FROM participants
+        WHERE gathering_id = ? AND display_name = ?
+        "#,
+    )
+    .bind(gathering_id)
+    .bind(actor_name)
+    .fetch_optional(pool)
+    .await?;
+
+    match role {
+        Some((role,)) if role == "host" => Ok(()),
+        _ => Err(AppError::Forbidden),
+    }
 }
 
 async fn sync_expired_gathering(pool: &DbPool, gathering: Gathering) -> AppResult<Gathering> {
@@ -694,12 +980,23 @@ async fn insert_activity_log(
     Ok(())
 }
 
+fn resource_dir() -> String {
+    std::env::var("LETSORDER_RESOURCE_DIR").unwrap_or_else(|_| {
+        if Path::new("backend/resources").exists() {
+            "backend/resources".to_string()
+        } else {
+            "resources".to_string()
+        }
+    })
+}
+
 struct MenuItemChangeAfter {
     name: String,
     category: Option<String>,
     quantity: i64,
     unit: Option<String>,
     owner_name: Option<String>,
+    reference_url: Option<String>,
     note: Option<String>,
     status: String,
 }
@@ -778,6 +1075,20 @@ async fn insert_menu_item_change_logs(
             "owner_name",
             serde_json::json!(before.owner_name),
             serde_json::json!(after.owner_name),
+        )
+        .await?;
+    }
+
+    if before.reference_url != after.reference_url {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_reference_url_changed",
+            "reference_url",
+            serde_json::json!(before.reference_url),
+            serde_json::json!(after.reference_url),
         )
         .await?;
     }

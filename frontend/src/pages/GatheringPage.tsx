@@ -65,6 +65,7 @@ function createLocalMenuItem(
     quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
     unit: String(formData.get('unit') ?? '').trim() || null,
     owner_name: String(formData.get('owner_name') ?? '').trim() || null,
+    reference_url: String(formData.get('reference_url') ?? '').trim() || null,
     note: String(formData.get('note') ?? '').trim() || null,
     status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
     created_at: editingItem?.created_at ?? now,
@@ -344,6 +345,7 @@ export default function GatheringPage() {
             unit: String(formData.get('unit') ?? '').trim(),
             owner_name:
               String(formData.get('owner_name') ?? '').trim() || currentUser,
+            reference_url: String(formData.get('reference_url') ?? '').trim(),
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -362,6 +364,7 @@ export default function GatheringPage() {
             unit: String(formData.get('unit') ?? '').trim(),
             owner_name:
               String(formData.get('owner_name') ?? '').trim() || currentUser,
+            reference_url: String(formData.get('reference_url') ?? '').trim(),
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -607,6 +610,17 @@ export default function GatheringPage() {
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label>
+              Reference link
+              <input
+                key={`reference-${editingItem?.id ?? 'new'}`}
+                name="reference_url"
+                placeholder="https://example.com/recipe"
+                type="url"
+                defaultValue={editingItem?.reference_url ?? ''}
+              />
             </label>
 
             <label>

@@ -60,3 +60,15 @@ export interface ActivityLog {
   detail?: string | null;
   created_at: string;
 }
+
+export interface Photo {
+  id: string;
+  gathering_id: string;
+  uploaded_by: string;
+  file_url: string;
+  thumbnail_url?: string | null;
+  caption?: string | null;
+  taken_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}

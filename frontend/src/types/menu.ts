@@ -10,6 +10,7 @@ export interface MenuItem {
   quantity: number;
   unit?: string | null;
   owner_name?: string | null;
+  reference_url?: string | null;
   note?: string | null;
   status: MenuItemStatus;
   created_at: string;
