@@ -429,7 +429,7 @@ pub async fn create_menu_item(
     .bind(quantity)
     .bind(payload.unit.as_deref().map(str::trim))
     .bind(payload.owner_name.as_deref().map(str::trim))
-    .bind(payload.reference_url.as_deref().map(str::trim))
+    .bind(normalize_reference_url(payload.reference_url.as_deref()).as_deref())
     .bind(payload.note.as_deref().map(str::trim))
     .bind(status)
     .bind(now)
@@ -485,8 +485,8 @@ pub async fn update_menu_item(
         .map(|value| value.trim().to_string());
     let reference_url = payload
         .reference_url
-        .or_else(|| current.reference_url.clone())
-        .map(|value| value.trim().to_string());
+        .map(|value| normalize_reference_url(Some(&value)))
+        .unwrap_or_else(|| current.reference_url.clone());
     let note = payload
         .note
         .or_else(|| current.note.clone())
@@ -1201,6 +1201,32 @@ fn validate_menu_status(status: &str) -> AppResult<()> {
             "status must be planned, prepared, or cancelled".to_string(),
         )),
     }
+}
+
+fn normalize_reference_url(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    extract_first_url(value).or_else(|| Some(value.to_string()))
+}
+
+fn extract_first_url(value: &str) -> Option<String> {
+    value.split_whitespace().find_map(|token| {
+        let trimmed = token.trim_matches(|character: char| {
+            matches!(
+                character,
+                '，' | ',' | '。' | '.' | '！' | '!' | '？' | '?' | '）' | ')' | '】' | ']'
+            )
+        });
+
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            Some(trimmed.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 async fn unique_invite_code(pool: &DbPool, title: &str) -> AppResult<String> {

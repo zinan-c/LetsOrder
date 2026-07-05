@@ -47,6 +47,16 @@ const unitOptions = [
   'bags',
 ];
 
+function normalizeReferenceUrl(value: FormDataEntryValue | null) {
+  const text = String(value ?? '').trim();
+  const url = text
+    .split(/\s+/)
+    .map((part) => part.replace(/[，,。.!！?？）)】\]]+$/u, ''))
+    .find((part) => part.startsWith('http://') || part.startsWith('https://'));
+
+  return url ?? text;
+}
+
 function createLocalMenuItem(
   formData: FormData,
   inviteCode?: string,
@@ -65,7 +75,7 @@ function createLocalMenuItem(
     quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
     unit: String(formData.get('unit') ?? '').trim() || null,
     owner_name: String(formData.get('owner_name') ?? '').trim() || null,
-    reference_url: String(formData.get('reference_url') ?? '').trim() || null,
+    reference_url: normalizeReferenceUrl(formData.get('reference_url')) || null,
     note: String(formData.get('note') ?? '').trim() || null,
     status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
     created_at: editingItem?.created_at ?? now,
@@ -345,7 +355,7 @@ export default function GatheringPage() {
             unit: String(formData.get('unit') ?? '').trim(),
             owner_name:
               String(formData.get('owner_name') ?? '').trim() || currentUser,
-            reference_url: String(formData.get('reference_url') ?? '').trim(),
+            reference_url: normalizeReferenceUrl(formData.get('reference_url')),
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -364,7 +374,7 @@ export default function GatheringPage() {
             unit: String(formData.get('unit') ?? '').trim(),
             owner_name:
               String(formData.get('owner_name') ?? '').trim() || currentUser,
-            reference_url: String(formData.get('reference_url') ?? '').trim(),
+            reference_url: normalizeReferenceUrl(formData.get('reference_url')),
             note: String(formData.get('note') ?? '').trim(),
             status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
           });
@@ -617,8 +627,7 @@ export default function GatheringPage() {
               <input
                 key={`reference-${editingItem?.id ?? 'new'}`}
                 name="reference_url"
-                placeholder="https://example.com/recipe"
-                type="url"
+                placeholder="Paste a link or share text"
                 defaultValue={editingItem?.reference_url ?? ''}
               />
             </label>
