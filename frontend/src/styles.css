@@ -824,6 +824,20 @@ h1 {
   margin-top: 1rem;
 }
 
+.photo-upload-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+}
+
+.photo-upload-controls label {
+  min-width: min(260px, 100%);
+}
+
+.photo-upload-controls input {
+  min-width: 220px;
+}
+
 .photo-card,
 .upload-card {
   min-height: 220px;
@@ -894,6 +908,15 @@ h1 {
 
   .summary-list {
     grid-template-columns: 1fr;
+  }
+
+  .photo-upload-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .photo-upload-controls input {
+    min-width: 0;
   }
 
   .sticky-side {

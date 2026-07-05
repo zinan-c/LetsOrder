@@ -712,6 +712,11 @@ pub async fn upload_photo(
         .map_err(|error| AppError::Validation(format!("could not write upload file: {error}")))?;
 
     let file_url = format!("/resources/uploads/{stored_file_name}");
+    let caption = caption
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Image");
 
     sqlx::query(
         r#"
@@ -726,7 +731,7 @@ pub async fn upload_photo(
     .bind(gathering_id)
     .bind(uploaded_by)
     .bind(&file_url)
-    .bind(caption.as_deref().map(str::trim))
+    .bind(caption)
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -1256,6 +1261,10 @@ async fn unique_invite_code(pool: &DbPool, title: &str) -> AppResult<String> {
 }
 
 fn slugify_title(title: &str) -> String {
+    if title.chars().any(|character| !character.is_ascii()) {
+        return Uuid::new_v4().simple().to_string()[..8].to_string();
+    }
+
     let mut slug = String::new();
     let mut last_was_dash = false;
 

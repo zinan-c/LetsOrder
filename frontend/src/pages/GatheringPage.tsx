@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   getGatheringByInviteCode,
   joinGathering,
@@ -85,6 +85,7 @@ function createLocalMenuItem(
 
 export default function GatheringPage() {
   const { inviteCode } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -122,6 +123,8 @@ export default function GatheringPage() {
   });
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
+  const isReviewReturn =
+    new URLSearchParams(location.search).get('from') === 'review';
 
   useEffect(() => {
     function handleUserChanged(event: Event) {
@@ -156,7 +159,7 @@ export default function GatheringPage() {
         setCurrentGathering(gatheringResponse.gathering);
         setGatheringId(gatheringResponse.gathering.id);
 
-        if (gatheringResponse.gathering.is_locked) {
+        if (gatheringResponse.gathering.is_locked && !isReviewReturn) {
           navigate(`/review/${currentInviteCode}`, { replace: true });
           return;
         }
@@ -247,7 +250,7 @@ export default function GatheringPage() {
     return () => {
       ignore = true;
     };
-  }, [currentUser, inviteCode, navigate]);
+  }, [currentUser, inviteCode, isReviewReturn, navigate]);
 
   const ownerOptions = useMemo(() => {
     const names = new Set(

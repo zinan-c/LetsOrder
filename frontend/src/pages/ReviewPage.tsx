@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -10,12 +10,12 @@ import { listMenuItems } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
-import { mockPhotos } from '../data/mockGathering';
 
 export default function ReviewPage() {
   const { inviteCode } = useParams();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoTitle, setPhotoTitle] = useState('');
   const gatheringQuery = useQuery({
     queryKey: ['gathering', inviteCode],
     queryFn: () => getGatheringByInviteCode(inviteCode ?? ''),
@@ -39,8 +39,10 @@ export default function ReviewPage() {
     retry: false,
   });
   const photoUploadMutation = useMutation({
-    mutationFn: (file: File) => uploadPhoto(gathering?.id ?? '', file),
+    mutationFn: ({ file, caption }: { file: File; caption?: string }) =>
+      uploadPhoto(gathering?.id ?? '', file, caption),
     onSuccess: async () => {
+      setPhotoTitle('');
       await queryClient.invalidateQueries({ queryKey: ['photos', gathering?.id] });
       await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
     },
@@ -53,7 +55,10 @@ export default function ReviewPage() {
       return;
     }
 
-    photoUploadMutation.mutate(file);
+    photoUploadMutation.mutate({
+      file,
+      caption: photoTitle.trim() || undefined,
+    });
     event.target.value = '';
   }
 
@@ -65,7 +70,10 @@ export default function ReviewPage() {
         description="The final menu becomes available after this gathering is locked."
       >
         <div className="action-row">
-          <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
+          <Link
+            className="button-link secondary"
+            to={`/menu/${inviteCode}?from=review`}
+          >
             Back to menu
           </Link>
           <Link className="button-link secondary" to={`/host/${inviteCode}`}>
@@ -85,7 +93,10 @@ export default function ReviewPage() {
       >
         <div className="action-row">
           <StatusPill tone="neutral">Read-only menu</StatusPill>
-          <Link className="button-link secondary" to={`/menu/${inviteCode}`}>
+          <Link
+            className="button-link secondary"
+            to={`/menu/${inviteCode}?from=review`}
+          >
             Back to menu
           </Link>
         </div>
@@ -114,9 +125,19 @@ export default function ReviewPage() {
             <p className="card-kicker">Photo wall</p>
             <h2>Little memories, neatly kept</h2>
           </div>
-          <button type="button" onClick={() => fileInputRef.current?.click()}>
-            {photoUploadMutation.isPending ? 'Uploading...' : 'Upload photos'}
-          </button>
+          <div className="photo-upload-controls">
+            <label>
+              Photo title
+              <input
+                value={photoTitle}
+                placeholder="Grandma's soup moment"
+                onChange={(event) => setPhotoTitle(event.target.value)}
+              />
+            </label>
+            <button type="button" onClick={() => fileInputRef.current?.click()}>
+              {photoUploadMutation.isPending ? 'Uploading...' : 'Upload photos'}
+            </button>
+          </div>
           <input
             ref={fileInputRef}
             accept="image/*"
@@ -128,28 +149,24 @@ export default function ReviewPage() {
         {photoUploadMutation.isError ? (
           <p className="error">Could not upload this photo.</p>
         ) : null}
-        <div className="photo-grid">
-          <article className="photo-card uploaded-photo-card">
-            <img alt="Mock gathering memory" src="/resources/mock/mock-gathering-photo.svg" />
-            <p>Mock gathering photo</p>
-          </article>
-          {uploadedPhotos.map((photo) => (
-            <article className="photo-card uploaded-photo-card" key={photo.id}>
-              <img alt={photo.caption ?? 'Uploaded gathering memory'} src={photo.file_url} />
-              <p>{photo.caption ?? 'Uploaded memory'}</p>
-            </article>
-          ))}
-          {mockPhotos.map((photo) => (
-            <article className={`photo-card photo-${photo.color}`} key={photo.id}>
-              <div className="photo-blob" />
-              <p>{photo.title}</p>
-            </article>
-          ))}
-          <article className="upload-card">
-            <strong>Drop photos here</strong>
-            <span>JPG, PNG, or HEIC later</span>
-          </article>
-        </div>
+        {uploadedPhotos.length === 0 ? (
+          <p className="empty-panel-note">
+            Are you ready to take notes of the photos?
+          </p>
+        ) : null}
+        {uploadedPhotos.length > 0 ? (
+          <div className="photo-grid">
+            {uploadedPhotos.map((photo) => (
+              <article className="photo-card uploaded-photo-card" key={photo.id}>
+                <img
+                  alt={photo.caption ?? 'Uploaded gathering memory'}
+                  src={photo.file_url}
+                />
+                <p>{photo.caption ?? 'Uploaded memory'}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
     </div>
   );
