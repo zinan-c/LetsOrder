@@ -97,7 +97,85 @@ function formatChanges(log: ActivityLog) {
   return changes.join('; ');
 }
 
+function formatFieldChange(log: ActivityLog) {
+  const detail = parseDetail(log);
+  if (!detail || detail.before === undefined || detail.after === undefined) {
+    return '';
+  }
+
+  const before = formatValue(detail.before);
+  const after = formatValue(detail.after);
+
+  switch (log.action) {
+    case 'menu_item_name_changed':
+      return `renamed a menu item from ${before} to ${after}`;
+    case 'menu_item_category_changed':
+      return `moved a menu item from ${before} to ${after}`;
+    case 'menu_item_quantity_changed':
+      return `changed the item quantity from ${before} to ${after}`;
+    case 'menu_item_unit_changed':
+      return `changed the item unit from ${before} to ${after}`;
+    case 'menu_item_owner_changed':
+      return `reassigned a menu item from ${before} to ${after}`;
+    case 'menu_item_reference_url_changed':
+      return `updated the reference link from ${before} to ${after}`;
+    case 'menu_item_note_changed':
+      return `updated the item note from ${before} to ${after}`;
+    case 'menu_item_status_changed':
+      return `changed the item status from ${before} to ${after}`;
+    case 'menu_item_cancelled':
+      return `cancelled a menu item`;
+    case 'photo_caption_updated':
+      return `renamed a photo from ${before} to ${after}`;
+    default:
+      return '';
+  }
+}
+
 function formatAction(log: ActivityLog) {
+  const fieldChange = formatFieldChange(log);
+  if (fieldChange) {
+    return fieldChange;
+  }
+
+  if (log.action === 'menu_item_created') {
+    return 'added a menu item';
+  }
+
+  if (log.action === 'participant_joined') {
+    return 'joined the gathering';
+  }
+
+  if (log.action === 'gathering_locked') {
+    return 'locked the menu';
+  }
+
+  if (log.action === 'gathering_auto_locked') {
+    return 'auto-locked the menu after the deadline';
+  }
+
+  if (log.action === 'gathering_archived') {
+    return 'archived the gathering';
+  }
+
+  if (log.action === 'photo_uploaded') {
+    return 'uploaded a photo';
+  }
+
+  if (log.action === 'photo_deleted') {
+    return 'deleted a photo';
+  }
+
+  if (log.action === 'gathering_deadline_updated') {
+    const changes = formatChanges(log);
+    return changes ? `updated the menu deadline ${changes}` : 'updated the menu deadline';
+  }
+
+  if (log.action === 'menu_reopened') {
+    const changes = formatChanges(log);
+    return changes ? `reopened the menu ${changes}` : 'reopened the menu';
+  }
+
   const action = log.action.replaceAll('_', ' ');
   const changes = formatChanges(log);
   return changes ? `${action} (${changes})` : action;

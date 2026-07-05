@@ -371,7 +371,7 @@ Default local URLs:
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
 
-The script installs frontend dependencies when `frontend/node_modules` is missing. Press `Ctrl+C` to stop both servers.
+The script installs frontend dependencies when `frontend/node_modules` is missing. For SQLite development databases, it clears the database file before each startup so migrations rebuild a clean local state. Press `Ctrl+C` to stop both servers.
 
 Before starting, the script checks the configured backend and frontend ports and stops stale LetsOrder processes that are still listening there. This avoids accidentally talking to an older backend after code changes.
 

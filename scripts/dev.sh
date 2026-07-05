@@ -25,6 +25,17 @@ require_command npm
 stop_process_on_port "$BACKEND_PORT" "backend"
 stop_process_on_port "$FRONTEND_PORT" "frontend"
 
+if [[ "$DATABASE_URL" == sqlite://* ]]; then
+  DATABASE_PATH="${DATABASE_URL#sqlite://}"
+  DATABASE_PATH="${DATABASE_PATH%%\?*}"
+  if [[ -n "$DATABASE_PATH" && -f "$DATABASE_PATH" ]]; then
+    echo "Clearing development database: $DATABASE_PATH"
+    rm -f "$DATABASE_PATH"
+  fi
+else
+  echo "Skipping automatic database cleanup for non-SQLite DATABASE_URL."
+fi
+
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   echo "Installing frontend dependencies..."
   (cd "$ROOT_DIR/frontend" && npm install)

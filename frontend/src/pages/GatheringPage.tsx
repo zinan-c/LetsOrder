@@ -102,9 +102,40 @@ export default function GatheringPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
-  const filteredMenuItems = menuItems.filter((item) =>
-    statusFilter === 'all' ? true : item.status === statusFilter,
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const categoryFilterOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          menuItems.map((item) => item.category ?? 'Other').filter(Boolean),
+        ),
+      ].sort(),
+    [menuItems],
   );
+  const ownerFilterOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          menuItems.map((item) => item.owner_name ?? 'Unassigned').filter(Boolean),
+        ),
+      ].sort(),
+    [menuItems],
+  );
+  const filteredMenuItems = menuItems.filter((item) => {
+    const matchesStatus =
+      statusFilter === 'all' ? true : item.status === statusFilter;
+    const matchesCategory =
+      categoryFilter === 'all'
+        ? true
+        : (item.category ?? 'Other') === categoryFilter;
+    const matchesOwner =
+      ownerFilter === 'all'
+        ? true
+        : (item.owner_name ?? 'Unassigned') === ownerFilter;
+
+    return matchesStatus && matchesCategory && matchesOwner;
+  });
   const sortedMenuItems = [...filteredMenuItems].sort((left, right) => {
     if (left.status === right.status) {
       return 0;
@@ -466,6 +497,34 @@ export default function GatheringPage() {
                   <option value="cancelled">Cancelled</option>
                 </select>
               </label>
+              <label className="status-filter">
+                Category
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All</option>
+                  {categoryFilterOptions.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="status-filter">
+                Owner
+                <select
+                  value={ownerFilter}
+                  onChange={(event) => setOwnerFilter(event.target.value)}
+                >
+                  <option value="all">All</option>
+                  {ownerFilterOptions.map((owner) => (
+                    <option key={owner} value={owner}>
+                      {owner}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <span className="toolbar-note">
                 {isCurrentMenuLocked
                   ? 'Menu editing is locked'
@@ -576,8 +635,8 @@ export default function GatheringPage() {
                 <input
                   key={`quantity-${editingItem?.id ?? 'new'}`}
                   name="quantity"
-                  placeholder="2"
-                  defaultValue={editingItem?.quantity ?? ''}
+                  placeholder="1"
+                  defaultValue={editingItem?.quantity ?? 1}
                 />
               </label>
               <label>
