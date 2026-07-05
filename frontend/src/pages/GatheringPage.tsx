@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   getGatheringByInviteCode,
   joinGathering,
@@ -74,6 +74,7 @@ function createLocalMenuItem(
 
 export default function GatheringPage() {
   const { inviteCode } = useParams();
+  const navigate = useNavigate();
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
@@ -110,7 +111,6 @@ export default function GatheringPage() {
   });
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
-  const isAdmin = currentUser === 'admin';
 
   useEffect(() => {
     function handleUserChanged(event: Event) {
@@ -144,6 +144,11 @@ export default function GatheringPage() {
 
         setCurrentGathering(gatheringResponse.gathering);
         setGatheringId(gatheringResponse.gathering.id);
+
+        if (gatheringResponse.gathering.is_locked) {
+          navigate(`/review/${currentInviteCode}`, { replace: true });
+          return;
+        }
 
         let storedParticipantId = localStorage.getItem(
           participantStorageKey(currentInviteCode),
@@ -231,7 +236,7 @@ export default function GatheringPage() {
     return () => {
       ignore = true;
     };
-  }, [currentUser, inviteCode]);
+  }, [currentUser, inviteCode, navigate]);
 
   const ownerOptions = useMemo(() => {
     const names = new Set(
@@ -426,7 +431,6 @@ export default function GatheringPage() {
               inviteCode={currentInviteCode}
               expiresAt={currentExpiresAt}
               isLocked={isCurrentMenuLocked}
-              canManage={isAdmin}
               participantCount={
                 currentGathering ? undefined : mockGathering.participantCount
               }

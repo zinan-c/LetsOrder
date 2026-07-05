@@ -178,7 +178,7 @@ pub async fn update_gathering_deadline(
     gathering_id: Uuid,
     payload: UpdateGatheringRequest,
 ) -> AppResult<Gathering> {
-    get_gathering_by_id(pool, gathering_id).await?;
+    let current = get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();
     let should_lock = payload.expires_at <= now;
@@ -204,6 +204,33 @@ pub async fn update_gathering_deadline(
     .execute(pool)
     .await?;
 
+    if current.is_locked && !should_lock {
+        insert_activity_log(
+            pool,
+            gathering_id,
+            None,
+            "menu_reopened",
+            "gathering",
+            Some(gathering_id),
+            Some(
+                serde_json::json!({
+                    "before": {
+                        "expires_at": current.expires_at,
+                        "status": current.status,
+                        "is_locked": current.is_locked,
+                    },
+                    "after": {
+                        "expires_at": payload.expires_at,
+                        "status": "active",
+                        "is_locked": false,
+                    }
+                })
+                .to_string(),
+            ),
+        )
+        .await?;
+    }
+
     insert_activity_log(
         pool,
         gathering_id,
@@ -211,7 +238,21 @@ pub async fn update_gathering_deadline(
         "gathering_deadline_updated",
         "gathering",
         Some(gathering_id),
-        None,
+        Some(
+            serde_json::json!({
+                "before": {
+                    "expires_at": current.expires_at,
+                    "status": current.status,
+                    "is_locked": current.is_locked,
+                },
+                "after": {
+                    "expires_at": payload.expires_at,
+                    "status": if should_lock { "locked" } else { "active" },
+                    "is_locked": should_lock,
+                }
+            })
+            .to_string(),
+        ),
     )
     .await?;
 
@@ -372,14 +413,32 @@ pub async fn update_menu_item(
     ensure_gathering_editable(pool, current.gathering_id).await?;
     ensure_participant_in_gathering(pool, current.gathering_id, payload.updated_by).await?;
 
-    let name = payload.name.unwrap_or(current.name);
+    let before = current.clone();
+
+    let name = payload.name.unwrap_or_else(|| current.name.clone());
     validate_menu_item_name(&name)?;
 
     let quantity = payload.quantity.unwrap_or(current.quantity);
     validate_quantity(quantity)?;
 
-    let status = payload.status.unwrap_or(current.status);
+    let status = payload.status.unwrap_or_else(|| current.status.clone());
     validate_menu_status(&status)?;
+    let category = payload
+        .category
+        .or_else(|| current.category.clone())
+        .map(|value| value.trim().to_string());
+    let unit = payload
+        .unit
+        .or_else(|| current.unit.clone())
+        .map(|value| value.trim().to_string());
+    let owner_name = payload
+        .owner_name
+        .or_else(|| current.owner_name.clone())
+        .map(|value| value.trim().to_string());
+    let note = payload
+        .note
+        .or_else(|| current.note.clone())
+        .map(|value| value.trim().to_string());
 
     let now = Utc::now();
 
@@ -400,43 +459,32 @@ pub async fn update_menu_item(
     )
     .bind(payload.updated_by)
     .bind(name.trim())
-    .bind(
-        payload
-            .category
-            .or(current.category)
-            .as_deref()
-            .map(str::trim),
-    )
+    .bind(category.as_deref())
     .bind(quantity)
-    .bind(payload.unit.or(current.unit).as_deref().map(str::trim))
-    .bind(
-        payload
-            .owner_name
-            .or(current.owner_name)
-            .as_deref()
-            .map(str::trim),
-    )
-    .bind(payload.note.or(current.note).as_deref().map(str::trim))
+    .bind(unit.as_deref())
+    .bind(owner_name.as_deref())
+    .bind(note.as_deref())
     .bind(&status)
     .bind(now)
     .bind(menu_item_id)
     .execute(pool)
     .await?;
 
-    let action = if status == "cancelled" {
-        "menu_item_cancelled"
-    } else {
-        "menu_item_updated"
-    };
-
-    insert_activity_log(
+    insert_menu_item_change_logs(
         pool,
         current.gathering_id,
-        Some(payload.updated_by),
-        action,
-        "menu_item",
-        Some(menu_item_id),
-        None,
+        payload.updated_by,
+        menu_item_id,
+        before,
+        MenuItemChangeAfter {
+            name: name.trim().to_string(),
+            category,
+            quantity,
+            unit,
+            owner_name,
+            note,
+            status,
+        },
     )
     .await?;
     touch_participant_menu_activity(pool, payload.updated_by).await?;
@@ -644,6 +692,160 @@ async fn insert_activity_log(
     .await?;
 
     Ok(())
+}
+
+struct MenuItemChangeAfter {
+    name: String,
+    category: Option<String>,
+    quantity: i64,
+    unit: Option<String>,
+    owner_name: Option<String>,
+    note: Option<String>,
+    status: String,
+}
+
+async fn insert_menu_item_change_logs(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_id: Uuid,
+    menu_item_id: Uuid,
+    before: MenuItem,
+    after: MenuItemChangeAfter,
+) -> AppResult<()> {
+    if before.name != after.name {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_name_changed",
+            "name",
+            serde_json::json!(before.name),
+            serde_json::json!(after.name),
+        )
+        .await?;
+    }
+
+    if before.category != after.category {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_category_changed",
+            "category",
+            serde_json::json!(before.category),
+            serde_json::json!(after.category),
+        )
+        .await?;
+    }
+
+    if before.quantity != after.quantity {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_quantity_changed",
+            "quantity",
+            serde_json::json!(before.quantity),
+            serde_json::json!(after.quantity),
+        )
+        .await?;
+    }
+
+    if before.unit != after.unit {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_unit_changed",
+            "unit",
+            serde_json::json!(before.unit),
+            serde_json::json!(after.unit),
+        )
+        .await?;
+    }
+
+    if before.owner_name != after.owner_name {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_owner_changed",
+            "owner_name",
+            serde_json::json!(before.owner_name),
+            serde_json::json!(after.owner_name),
+        )
+        .await?;
+    }
+
+    if before.note != after.note {
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            "menu_item_note_changed",
+            "note",
+            serde_json::json!(before.note),
+            serde_json::json!(after.note),
+        )
+        .await?;
+    }
+
+    if before.status != after.status {
+        let action = if after.status == "cancelled" {
+            "menu_item_cancelled"
+        } else {
+            "menu_item_status_changed"
+        };
+
+        insert_field_change_log(
+            pool,
+            gathering_id,
+            actor_id,
+            menu_item_id,
+            action,
+            "status",
+            serde_json::json!(before.status),
+            serde_json::json!(after.status),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn insert_field_change_log(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    actor_id: Uuid,
+    menu_item_id: Uuid,
+    action: &str,
+    field: &str,
+    before: serde_json::Value,
+    after: serde_json::Value,
+) -> AppResult<()> {
+    insert_activity_log(
+        pool,
+        gathering_id,
+        Some(actor_id),
+        action,
+        "menu_item",
+        Some(menu_item_id),
+        Some(
+            serde_json::json!({
+                "field": field,
+                "before": before,
+                "after": after,
+            })
+            .to_string(),
+        ),
+    )
+    .await
 }
 
 async fn touch_participant_menu_activity(pool: &DbPool, participant_id: Uuid) -> AppResult<()> {

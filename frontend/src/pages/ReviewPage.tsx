@@ -38,7 +38,7 @@ export default function ReviewPage() {
             Back to menu
           </Link>
           <Link className="button-link secondary" to={`/host/${inviteCode}`}>
-            Host controls
+            On Track
           </Link>
         </div>
       </PageCard>

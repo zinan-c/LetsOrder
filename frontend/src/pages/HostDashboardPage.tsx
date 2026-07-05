@@ -13,9 +13,94 @@ import StatusPill from '../components/StatusPill';
 import type { ActivityLog, Participant } from '../types/gathering';
 import { copyText } from '../utils/clipboard';
 import { formatDateTime, toDateTimeLocalValue } from '../utils/dateTime';
+import { getCookieUser, USER_CHANGED_EVENT } from '../utils/user';
+
+type ActivityDetail = {
+  field?: string;
+  before?: unknown;
+  after?: unknown;
+};
+
+function parseDetail(log: ActivityLog) {
+  if (!log.detail) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(log.detail) as ActivityDetail;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function formatValue(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return 'empty';
+  }
+
+  if (typeof value === 'string' && value.includes('T')) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return formatDateTime(value);
+    }
+  }
+
+  return String(value);
+}
+
+function formatChanges(log: ActivityLog) {
+  const detail = parseDetail(log);
+  if (!detail || detail.before === undefined || detail.after === undefined) {
+    return '';
+  }
+
+  if (
+    (log.action === 'gathering_deadline_updated' ||
+      log.action === 'menu_reopened') &&
+    isRecord(detail.before) &&
+    isRecord(detail.after)
+  ) {
+    return `from ${formatValue(detail.before.expires_at)} to ${formatValue(
+      detail.after.expires_at,
+    )}`;
+  }
+
+  if (detail.field) {
+    return `${detail.field.replaceAll('_', ' ')}: ${formatValue(
+      detail.before,
+    )} → ${formatValue(detail.after)}`;
+  }
+
+  if (!isRecord(detail.before) || !isRecord(detail.after)) {
+    return '';
+  }
+
+  const beforeRecord = detail.before;
+  const afterRecord = detail.after;
+  const changes = Object.keys(afterRecord)
+    .filter((key) => {
+      const beforeValue = beforeRecord[key];
+      const afterValue = afterRecord[key];
+      return JSON.stringify(beforeValue) !== JSON.stringify(afterValue);
+    })
+    .map(
+      (key) =>
+        `${key.replaceAll('_', ' ')}: ${formatValue(
+          beforeRecord[key],
+        )} → ${formatValue(afterRecord[key])}`,
+    );
+
+  return changes.join('; ');
+}
 
 function formatAction(log: ActivityLog) {
-  return log.action.replaceAll('_', ' ');
+  const action = log.action.replaceAll('_', ' ');
+  const changes = formatChanges(log);
+  return changes ? `${action} (${changes})` : action;
 }
 
 export default function HostDashboardPage() {
@@ -24,10 +109,12 @@ export default function HostDashboardPage() {
   const [showAllParticipants, setShowAllParticipants] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [deadline, setDeadline] = useState('');
+  const [currentUser, setCurrentUser] = useState(() => getCookieUser());
   const [buttonFeedback, setButtonFeedback] = useState<
     'copy' | 'deadline' | 'lock' | null
   >(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
+  const isAdmin = currentUser === 'admin';
 
   function showButtonFeedback(feedback: 'copy' | 'deadline' | 'lock') {
     setButtonFeedback(feedback);
@@ -94,6 +181,19 @@ export default function HostDashboardPage() {
     setDeadline(toDateTimeLocalValue(gathering?.expires_at));
   }, [gathering?.expires_at]);
 
+  useEffect(() => {
+    function handleUserChanged(event: Event) {
+      const name = event instanceof CustomEvent ? String(event.detail) : '';
+      setCurrentUser(name);
+    }
+
+    window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
+
+    return () => {
+      window.removeEventListener(USER_CHANGED_EVENT, handleUserChanged);
+    };
+  }, []);
+
   const participants = participantsQuery.data?.participants ?? [];
   const recentParticipants = participants.slice(0, 4);
   const activityLogs = activityQuery.data?.activity_logs ?? [];
@@ -134,55 +234,63 @@ export default function HostDashboardPage() {
           </div>
         </div>
 
-        <div className="control-grid">
-          <label>
-            Menu editing deadline
-            <input
-              type="datetime-local"
-              value={deadline}
-              disabled={!gathering}
-              onChange={(event) => setDeadline(event.target.value)}
-            />
-          </label>
-          <span className="button-feedback-wrap">
-            <button
-              disabled={
-                !gathering ||
-                !deadline ||
-                updateDeadlineMutation.isPending
-              }
-              type="button"
-              onClick={() => updateDeadlineMutation.mutate()}
-            >
-              {updateDeadlineMutation.isPending ? 'Updating...' : 'Update deadline'}
-            </button>
-            {buttonFeedback === 'deadline' ? (
-              <span className="button-feedback">Updated</span>
+        {isAdmin ? (
+          <>
+            <div className="control-grid">
+              <label>
+                Menu editing deadline
+                <input
+                  type="datetime-local"
+                  value={deadline}
+                  disabled={!gathering}
+                  onChange={(event) => setDeadline(event.target.value)}
+                />
+              </label>
+              <span className="button-feedback-wrap">
+                <button
+                  disabled={
+                    !gathering ||
+                    !deadline ||
+                    updateDeadlineMutation.isPending
+                  }
+                  type="button"
+                  onClick={() => updateDeadlineMutation.mutate()}
+                >
+                  {updateDeadlineMutation.isPending
+                    ? 'Updating...'
+                    : 'Update deadline'}
+                </button>
+                {buttonFeedback === 'deadline' ? (
+                  <span className="button-feedback">Updated</span>
+                ) : null}
+              </span>
+              <span className="button-feedback-wrap">
+                <button
+                  className="danger-button"
+                  disabled={
+                    !gathering || gathering.is_locked || lockMutation.isPending
+                  }
+                  type="button"
+                  onClick={() => lockMutation.mutate()}
+                >
+                  {gathering?.is_locked
+                    ? 'Already locked'
+                    : lockMutation.isPending
+                      ? 'Locking...'
+                      : 'Lock menu now'}
+                </button>
+                {buttonFeedback === 'lock' ? (
+                  <span className="button-feedback">Already locked</span>
+                ) : null}
+              </span>
+            </div>
+            {lockMutation.isError && !gathering?.is_locked ? (
+              <p className="error">Could not lock this menu.</p>
             ) : null}
-          </span>
-          <span className="button-feedback-wrap">
-            <button
-              className="danger-button"
-              disabled={!gathering || gathering.is_locked || lockMutation.isPending}
-              type="button"
-              onClick={() => lockMutation.mutate()}
-            >
-              {gathering?.is_locked
-                ? 'Already locked'
-                : lockMutation.isPending
-                  ? 'Locking...'
-                  : 'Lock menu now'}
-            </button>
-            {buttonFeedback === 'lock' ? (
-              <span className="button-feedback">Already locked</span>
+            {updateDeadlineMutation.isError ? (
+              <p className="error">Could not update the deadline.</p>
             ) : null}
-          </span>
-        </div>
-        {lockMutation.isError && !gathering?.is_locked ? (
-          <p className="error">Could not lock this menu.</p>
-        ) : null}
-        {updateDeadlineMutation.isError ? (
-          <p className="error">Could not update the deadline.</p>
+          </>
         ) : null}
       </PageCard>
 
