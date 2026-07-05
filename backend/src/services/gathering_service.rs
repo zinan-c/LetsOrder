@@ -805,6 +805,63 @@ pub async fn delete_photo(
     Ok(photo)
 }
 
+pub async fn lock_expired_gatherings(pool: &DbPool, limit: i64) -> AppResult<Vec<Gathering>> {
+    let now = Utc::now();
+    let candidates = sqlx::query_as::<_, (Uuid,)>(
+        r#"
+        SELECT id
+        FROM gatherings
+        WHERE status = 'active'
+          AND is_locked = 0
+          AND expires_at <= ?
+        ORDER BY expires_at ASC
+        LIMIT ?
+        "#,
+    )
+    .bind(now)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    let mut locked_gatherings = Vec::new();
+
+    for (gathering_id,) in candidates {
+        let result = sqlx::query(
+            r#"
+            UPDATE gatherings
+            SET status = 'locked',
+                is_locked = 1,
+                locked_at = COALESCE(locked_at, ?),
+                updated_at = ?
+            WHERE id = ?
+              AND status = 'active'
+              AND is_locked = 0
+            "#,
+        )
+        .bind(now)
+        .bind(now)
+        .bind(gathering_id)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            insert_activity_log(
+                pool,
+                gathering_id,
+                None,
+                "gathering_auto_locked",
+                "gathering",
+                Some(gathering_id),
+                Some(format!("auto locked at {now}")),
+            )
+            .await?;
+            locked_gatherings.push(get_gathering_by_id(pool, gathering_id).await?);
+        }
+    }
+
+    Ok(locked_gatherings)
+}
+
 async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
     sqlx::query_as::<_, Gathering>(
         r#"

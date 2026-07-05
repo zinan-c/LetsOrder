@@ -23,7 +23,7 @@ LetsOrder is a lightweight family gathering menu collaboration system. A host cr
 - Database: SQLite for MVP
 - Database access: SQLx
 - Serialization: Serde
-- API style: REST first, WebSocket or SSE later for live updates
+- API style: REST for commands and queries, WebSocket for live refresh events
 
 ### Frontend
 
@@ -72,6 +72,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Set title, description, start time, and menu expiration time.
 - Generate and share an invitation code.
 - Lock or archive the gathering.
+- A background job scans every 10 minutes, orders expired unlocked gatherings by deadline, and locks up to 10 at a time.
 
 ### Account and Participant Join Flow
 
@@ -81,6 +82,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Generated first-use passwords use the entered name plus three random digits.
 - Join the gathering as a participant bound to the logged-in account.
 - Store an auth token locally in the browser.
+- Auth sessions expire after 48 hours and can be revoked by logout.
 
 ### Collaborative Menu
 
@@ -106,6 +108,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Extend or shorten the menu expiration time.
 - Manually lock the menu.
 - Review activity logs.
+- Receive live refresh events over WebSocket when gathering data changes.
 
 ### Settings
 
@@ -177,6 +180,8 @@ POST   /api/auth/login
 POST   /api/auth/register
 GET    /api/auth/me
 PATCH  /api/auth/account
+POST   /api/auth/logout
+GET    /api/ws
 ```
 
 ### Gatherings
@@ -436,7 +441,6 @@ This runs `cargo fmt --all --check`, `cargo check`, and `npm run build`.
 
 ## Future Ideas
 
-- Live menu updates with WebSocket or SSE.
 - QR code generation for invitation links.
 - Shopping list view derived from menu items.
 - Voting or emoji reactions for menu items.

@@ -2,6 +2,7 @@ use axum::{
     Json, Router,
     extract::State,
     http::HeaderMap,
+    http::StatusCode,
     routing::{get, patch, post},
 };
 
@@ -17,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/login", post(login))
         .route("/register", post(register))
         .route("/me", get(me))
+        .route("/logout", post(logout))
         .route("/account", patch(update_account))
 }
 
@@ -51,6 +53,11 @@ async fn update_account(
 ) -> AppResult<Json<serde_json::Value>> {
     let user = auth_service::update_account(&state.pool, bearer_token(&headers)?, payload).await?;
     Ok(Json(serde_json::json!({ "user": user })))
+}
+
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> AppResult<StatusCode> {
+    auth_service::logout(&state.pool, bearer_token(&headers)?).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn bearer_token(headers: &HeaderMap) -> AppResult<&str> {

@@ -9,6 +9,8 @@ use serde::Serialize;
 pub enum AppError {
     #[error("resource not found")]
     NotFound,
+    #[error("authentication is required")]
+    Unauthorized,
     #[error("request is not allowed")]
     Forbidden,
     #[error("validation failed: {0}")]
@@ -26,6 +28,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match self {
             AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden => StatusCode::FORBIDDEN,
             AppError::Validation(_) => StatusCode::BAD_REQUEST,
             AppError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,

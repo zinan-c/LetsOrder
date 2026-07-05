@@ -35,3 +35,9 @@ export function updateAccount(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export function logout() {
+  return apiRequest<void>('/api/auth/logout', {
+    method: 'POST',
+  });
+}

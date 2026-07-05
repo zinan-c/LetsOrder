@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -13,6 +13,7 @@ const PASSWORD_SALT: &str = "letsorder-auth-v1";
 const SYSTEM_ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
 const SYSTEM_ADMIN_USERNAME: &str = "suite-admin";
 const SYSTEM_ADMIN_PASSWORD: &str = "Admin_1234";
+const SESSION_TTL_HOURS: i64 = 48;
 
 pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthResponse> {
     let username = payload.username.trim();
@@ -114,6 +115,20 @@ pub async fn me(pool: &DbPool, token: &str) -> AppResult<User> {
     Ok(user)
 }
 
+pub async fn logout(pool: &DbPool, token: &str) -> AppResult<()> {
+    sqlx::query(
+        r#"
+        DELETE FROM auth_sessions
+        WHERE token = ?
+        "#,
+    )
+    .bind(token.trim())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn update_account(
     pool: &DbPool,
     token: &str,
@@ -176,9 +191,9 @@ pub async fn user_from_token(pool: &DbPool, token: &str) -> AppResult<User> {
         return Err(AppError::Forbidden);
     }
 
-    let user_id: Option<(Uuid,)> = sqlx::query_as(
+    let session: Option<(Uuid, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
         r#"
-        SELECT user_id
+        SELECT user_id, expires_at
         FROM auth_sessions
         WHERE token = ?
         "#,
@@ -187,9 +202,14 @@ pub async fn user_from_token(pool: &DbPool, token: &str) -> AppResult<User> {
     .fetch_optional(pool)
     .await?;
 
-    let Some((user_id,)) = user_id else {
-        return Err(AppError::Forbidden);
+    let Some((user_id, expires_at)) = session else {
+        return Err(AppError::Unauthorized);
     };
+
+    if expires_at.is_some_and(|value| value <= Utc::now()) {
+        logout(pool, token).await?;
+        return Err(AppError::Unauthorized);
+    }
 
     get_user_by_id(pool, user_id).await
 }
@@ -286,15 +306,18 @@ pub async fn ensure_participant_for_user(
 
 async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
     let token = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let expires_at = now + Duration::hours(SESSION_TTL_HOURS);
     sqlx::query(
         r#"
-        INSERT INTO auth_sessions (token, user_id, created_at)
-        VALUES (?, ?, ?)
+        INSERT INTO auth_sessions (token, user_id, created_at, expires_at)
+        VALUES (?, ?, ?, ?)
         "#,
     )
     .bind(&token)
     .bind(user_id)
-    .bind(Utc::now())
+    .bind(now)
+    .bind(expires_at)
     .execute(pool)
     .await?;
 

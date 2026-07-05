@@ -12,7 +12,7 @@ use crate::{
         CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest,
         UpdateGatheringRequest, UpdatePhotoRequest,
     },
-    routes::AppState,
+    routes::{AppState, RealtimeEvent},
     services::{auth_service, gathering_service},
 };
 
@@ -61,6 +61,7 @@ async fn create_gathering(
 ) -> AppResult<Json<serde_json::Value>> {
     ensure_admin(&state, &headers).await?;
     let gathering = gathering_service::create_gathering(&state.pool, payload).await?;
+    notify_refresh(&state, Some(gathering.gathering.id));
     Ok(Json(serde_json::json!(gathering)))
 }
 
@@ -84,6 +85,7 @@ async fn delete_gathering(
         actor_name(&state, &headers).await,
     )
     .await?;
+    notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -100,6 +102,7 @@ async fn update_gathering(
         actor_name(&state, &headers).await,
     )
     .await?;
+    notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -114,6 +117,7 @@ async fn lock_gathering(
         actor_name(&state, &headers).await,
     )
     .await?;
+    notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -127,6 +131,7 @@ async fn join_gathering(
     let user = require_user(&state, &headers).await?;
     let participant =
         auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
+    notify_refresh(&state, Some(gathering_id));
     Ok(Json(serde_json::json!({
         "participant": participant,
         "access_token": ""
@@ -170,6 +175,7 @@ async fn upload_photo(
         multipart,
     )
     .await?;
+    notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
 
@@ -192,6 +198,7 @@ async fn create_menu_item(
         auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
     payload.created_by = participant.id;
     let menu_item = gathering_service::create_menu_item(&state.pool, gathering_id, payload).await?;
+    notify_refresh(&state, Some(menu_item.gathering_id));
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
 }
 
@@ -215,6 +222,7 @@ async fn update_menu_item(
         auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
     payload.updated_by = participant.id;
     let menu_item = gathering_service::update_menu_item(&state.pool, menu_item_id, payload).await?;
+    notify_refresh(&state, Some(menu_item.gathering_id));
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
 }
 
@@ -231,6 +239,7 @@ async fn update_photo(
         actor_name(&state, &headers).await,
     )
     .await?;
+    notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
 
@@ -242,6 +251,7 @@ async fn delete_photo(
     let photo =
         gathering_service::delete_photo(&state.pool, photo_id, actor_name(&state, &headers).await)
             .await?;
+    notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
 
@@ -290,4 +300,11 @@ fn optional_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn notify_refresh(state: &AppState, gathering_id: Option<Uuid>) {
+    let _ = state.realtime_tx.send(RealtimeEvent {
+        event: "refresh".to_string(),
+        gathering_id,
+    });
 }

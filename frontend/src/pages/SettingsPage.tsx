@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { updateAccount } from '../api/auth';
+import { logout, updateAccount } from '../api/auth';
 import PageCard from '../components/PageCard';
 import { clearAuthSession, getCurrentUser, updateStoredUser } from '../utils/user';
 
@@ -21,6 +21,12 @@ export default function SettingsPage() {
       setPassword('');
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1200);
+    },
+  });
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSettled: () => {
+      clearAuthSession();
     },
   });
 
@@ -90,8 +96,13 @@ export default function SettingsPage() {
             <button disabled={mutation.isPending} type="submit">
               {mutation.isPending ? 'Saving...' : 'Save changes'}
             </button>
-            <button className="ghost-button" type="button" onClick={clearAuthSession}>
-              Log out
+            <button
+              className="ghost-button"
+              disabled={logoutMutation.isPending}
+              type="button"
+              onClick={() => logoutMutation.mutate()}
+            >
+              {logoutMutation.isPending ? 'Logging out...' : 'Log out'}
             </button>
           </div>
         </form>
