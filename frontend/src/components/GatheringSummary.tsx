@@ -10,6 +10,7 @@ interface GatheringSummaryProps {
   inviteCode?: string;
   expiresAt?: string;
   isLocked?: boolean;
+  canManage?: boolean;
   participantCount?: number;
 }
 
@@ -19,6 +20,7 @@ export default function GatheringSummary({
   inviteCode,
   expiresAt,
   isLocked = false,
+  canManage = false,
   participantCount,
 }: GatheringSummaryProps) {
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -72,9 +74,11 @@ export default function GatheringSummary({
       </div>
       {inviteCode ? (
         <div className="summary-actions">
-          <Link className="button-link secondary" to={`/host/${inviteCode}`}>
-            Host controls
-          </Link>
+          {canManage ? (
+            <Link className="button-link secondary" to={`/host/${inviteCode}`}>
+              Host controls
+            </Link>
+          ) : null}
           {isLocked ? (
             <Link className="button-link secondary" to={`/review/${inviteCode}`}>
               Review

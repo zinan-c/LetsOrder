@@ -16,7 +16,12 @@ import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
 import { formatDateTime } from '../utils/dateTime';
-import { getCookieUser, setCookieUser } from '../utils/user';
+import {
+  getCookieUser,
+  notifyUserChanged,
+  setCookieUser,
+  USER_CHANGED_EVENT,
+} from '../utils/user';
 
 function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
@@ -105,6 +110,22 @@ export default function GatheringPage() {
   });
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
+  const isAdmin = currentUser === 'admin';
+
+  useEffect(() => {
+    function handleUserChanged(event: Event) {
+      const name = event instanceof CustomEvent ? String(event.detail) : '';
+      setCurrentUser(name);
+      setDisplayName(name);
+      setParticipantId(null);
+    }
+
+    window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
+
+    return () => {
+      window.removeEventListener(USER_CHANGED_EVENT, handleUserChanged);
+    };
+  }, []);
 
   useEffect(() => {
     if (!inviteCode) {
@@ -134,7 +155,29 @@ export default function GatheringPage() {
           setParticipants(participantsResponse.participants);
         }
 
-        if (storedParticipantId && !currentUser) {
+        const cookieUser = getCookieUser();
+        const matchedCookieParticipant = cookieUser
+          ? participantsResponse.participants.find(
+              (participant) => participant.display_name === cookieUser,
+            )
+          : undefined;
+
+        if (
+          cookieUser &&
+          matchedCookieParticipant &&
+          storedParticipantId !== matchedCookieParticipant.id
+        ) {
+          storedParticipantId = matchedCookieParticipant.id;
+          localStorage.setItem(
+            participantStorageKey(currentInviteCode),
+            matchedCookieParticipant.id,
+          );
+          setParticipantId(matchedCookieParticipant.id);
+          setCurrentUser(cookieUser);
+          setDisplayName(cookieUser);
+        }
+
+        if (storedParticipantId && !cookieUser) {
           const storedParticipant = participantsResponse.participants.find(
             (participant) => participant.id === storedParticipantId,
           );
@@ -146,10 +189,10 @@ export default function GatheringPage() {
           }
         }
 
-        if (!storedParticipantId && currentUser) {
+        if (!storedParticipantId && cookieUser) {
           const joinResponse = await joinGathering(
             gatheringResponse.gathering.id,
-            currentUser,
+            cookieUser,
           );
           storedParticipantId = joinResponse.participant.id;
           localStorage.setItem(
@@ -162,6 +205,8 @@ export default function GatheringPage() {
           );
           if (!ignore) {
             setParticipants((items) => [joinResponse.participant, ...items]);
+            setCurrentUser(cookieUser);
+            setDisplayName(cookieUser);
           }
         }
 
@@ -233,6 +278,7 @@ export default function GatheringPage() {
         response.access_token,
       );
       setCookieUser(name);
+      notifyUserChanged(name);
       setCurrentUser(name);
       setParticipantId(response.participant.id);
       setParticipants((items) => [response.participant, ...items]);
@@ -361,44 +407,91 @@ export default function GatheringPage() {
               it locks.
             </p>
           </div>
-          <button
-            disabled={isCurrentMenuLocked || needsDisplayName}
-            type="button"
-            onClick={openAddDish}
-          >
-            {isCurrentMenuLocked
-              ? 'Menu locked'
-              : needsDisplayName
-                ? 'Join first'
-                : 'Add dish'}
-          </button>
+          {!needsDisplayName ? (
+            <button
+              disabled={isCurrentMenuLocked}
+              type="button"
+              onClick={openAddDish}
+            >
+              {isCurrentMenuLocked ? 'Menu locked' : 'Add dish'}
+            </button>
+          ) : null}
         </div>
 
-        <GatheringSummary
-          title={currentTitle}
-          description={currentDescription}
-          inviteCode={currentInviteCode}
-          expiresAt={currentExpiresAt}
-          isLocked={isCurrentMenuLocked}
-          participantCount={
-            currentGathering ? undefined : mockGathering.participantCount
-          }
-        />
+        {!needsDisplayName ? (
+          <>
+            <GatheringSummary
+              title={currentTitle}
+              description={currentDescription}
+              inviteCode={currentInviteCode}
+              expiresAt={currentExpiresAt}
+              isLocked={isCurrentMenuLocked}
+              canManage={isAdmin}
+              participantCount={
+                currentGathering ? undefined : mockGathering.participantCount
+              }
+            />
 
-        {needsDisplayName ? (
-          <form className="join-panel" onSubmit={handleJoinMenu}>
+            <div className="toolbar">
+              <label className="status-filter">
+                Status
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as 'all' | MenuItemStatus)
+                  }
+                >
+                  <option value="all">All</option>
+                  <option value="planned">Planned</option>
+                  <option value="prepared">Prepared</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+              <span className="toolbar-note">
+                {isCurrentMenuLocked
+                  ? 'Menu editing is locked'
+                  : `Menu locks ${formatDateTime(currentExpiresAt)}`}
+              </span>
+            </div>
+
+            <div className="dish-list">
+              {sortedMenuItems.map((item) => (
+                <DishCard
+                  item={item}
+                  key={item.id}
+                  readOnly={isCurrentMenuLocked}
+                  onEdit={openEditDish}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
+      </section>
+
+      {needsDisplayName ? (
+        <div className="modal-overlay" role="presentation">
+          <form
+            aria-modal="true"
+            aria-labelledby="join-menu-title"
+            className="confirm-modal join-menu-modal"
+            role="dialog"
+            onSubmit={handleJoinMenu}
+          >
             <div>
               <p className="card-kicker">Join menu</p>
-              <h2>Tell us who is editing</h2>
+              <h2 id="join-menu-title">Tell us who is editing</h2>
               <p>
-                Enter your name before adding or updating dishes, so the host can
-                see who changed what.
+                Enter your name before viewing or changing this menu, so the host
+                can see who changed what.
               </p>
             </div>
             <label>
               Your display name
               <input
                 required
+                autoFocus
+                minLength={1}
+                pattern=".*\S.*"
                 value={displayName}
                 placeholder="Grandma Lin"
                 onChange={(event) => setDisplayName(event.target.value)}
@@ -409,41 +502,8 @@ export default function GatheringPage() {
               {isJoining ? 'Joining...' : 'Join menu'}
             </button>
           </form>
-        ) : null}
-
-        <div className="toolbar">
-          <label className="status-filter">
-            Status
-            <select
-              value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as 'all' | MenuItemStatus)
-              }
-            >
-              <option value="all">All</option>
-              <option value="planned">Planned</option>
-              <option value="prepared">Prepared</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
-          <span className="toolbar-note">
-            {isCurrentMenuLocked
-              ? 'Menu editing is locked'
-              : `Menu locks ${formatDateTime(currentExpiresAt)}`}
-          </span>
         </div>
-
-        <div className="dish-list">
-          {sortedMenuItems.map((item) => (
-            <DishCard
-              item={item}
-              key={item.id}
-              readOnly={isCurrentMenuLocked}
-              onEdit={openEditDish}
-            />
-          ))}
-        </div>
-      </section>
+      ) : null}
 
       {isEditorOpen ? (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>

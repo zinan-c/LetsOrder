@@ -1,4 +1,5 @@
 const USER_COOKIE_NAME = 'user';
+export const USER_CHANGED_EVENT = 'letsorder:user-changed';
 
 export function getCookieUser() {
   const rawValue = document.cookie
@@ -12,6 +13,10 @@ export function getCookieUser() {
 
 export function setCookieUser(user: string) {
   document.cookie = `${USER_COOKIE_NAME}=${encodeURIComponent(user)}; path=/; max-age=2592000; SameSite=Lax`;
+}
+
+export function notifyUserChanged(user: string) {
+  window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: user }));
 }
 
 export function syncUserFromQuery(search: string) {

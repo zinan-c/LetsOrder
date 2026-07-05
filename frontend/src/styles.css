@@ -676,16 +676,24 @@ h1 {
   background: #fff7ed;
 }
 
+.join-menu-modal {
+  width: min(520px, 100%);
+}
+
 .join-panel h2,
-.join-panel p {
+.join-panel p,
+.join-menu-modal h2,
+.join-menu-modal p {
   margin: 0;
 }
 
-.join-panel h2 {
+.join-panel h2,
+.join-menu-modal h2 {
   color: #7c2d12;
 }
 
-.join-panel p:not(.card-kicker) {
+.join-panel p:not(.card-kicker),
+.join-menu-modal p:not(.card-kicker) {
   margin-top: 0.35rem;
   color: #57534e;
   line-height: 1.5;

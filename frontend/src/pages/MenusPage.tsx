@@ -1,11 +1,21 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { deleteGathering, listGatherings } from '../api/gatherings';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  deleteGathering,
+  listGatherings,
+  listParticipants,
+} from '../api/gatherings';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { GatheringListItem } from '../types/gathering';
+import { syncUserFromQuery, USER_CHANGED_EVENT } from '../utils/user';
 
 const fallbackMenus: GatheringListItem[] = [
   {
@@ -26,7 +36,14 @@ const fallbackMenus: GatheringListItem[] = [
 
 export default function MenusPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const navigate = useNavigate();
+  const initialUser = useMemo(
+    () => syncUserFromQuery(location.search),
+    [location.search],
+  );
+  const [currentUser, setCurrentUser] = useState(initialUser);
+  const isAdmin = currentUser === 'admin';
   const [menuToDelete, setMenuToDelete] = useState<GatheringListItem | null>(
     null,
   );
@@ -35,7 +52,31 @@ export default function MenusPage() {
     queryFn: listGatherings,
     retry: false,
   });
-  const menus = [...(gatheringsQuery.data?.gatherings ?? []), ...fallbackMenus];
+  const realMenus = gatheringsQuery.data?.gatherings ?? [];
+  const participantQueries = useQueries({
+    queries: realMenus.map((menu) => ({
+      queryKey: ['participants', menu.id],
+      queryFn: () => listParticipants(menu.id),
+      enabled: Boolean(currentUser && !isAdmin),
+      retry: false,
+    })),
+  });
+  const participatedMenuIds = new Set(
+    participantQueries.flatMap((query, index) => {
+      const hasCurrentUser = query.data?.participants.some(
+        (participant) => participant.display_name === currentUser,
+      );
+
+      return hasCurrentUser ? [realMenus[index].id] : [];
+    }),
+  );
+  const menus = isAdmin
+    ? [...realMenus, ...fallbackMenus]
+    : realMenus.filter((menu) => participatedMenuIds.has(menu.id));
+  const isFilteringMenus =
+    !isAdmin &&
+    Boolean(currentUser) &&
+    participantQueries.some((query) => query.isLoading);
   const deleteMutation = useMutation({
     mutationFn: deleteGathering,
     onSuccess: async () => {
@@ -43,6 +84,19 @@ export default function MenusPage() {
       await queryClient.invalidateQueries({ queryKey: ['gatherings'] });
     },
   });
+
+  useEffect(() => {
+    function handleUserChanged(event: Event) {
+      const name = event instanceof CustomEvent ? String(event.detail) : '';
+      setCurrentUser(name);
+    }
+
+    window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
+
+    return () => {
+      window.removeEventListener(USER_CHANGED_EVENT, handleUserChanged);
+    };
+  }, []);
 
   return (
     <PageCard
@@ -75,22 +129,30 @@ export default function MenusPage() {
               <span>{menu.prepared_count} prepared</span>
               <span>{menu.participant_count} people</span>
             </div>
-            <div className="menu-list-actions">
-              <button
-                className="danger-button"
-                disabled={menu.id === 'mock-menu'}
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setMenuToDelete(menu);
-                }}
-              >
-                Delete
-              </button>
-            </div>
+            {isAdmin ? (
+              <div className="menu-list-actions">
+                <button
+                  className="danger-button"
+                  disabled={menu.id === 'mock-menu'}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMenuToDelete(menu);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            ) : null}
           </article>
         ))}
       </div>
+      {isFilteringMenus ? (
+        <p className="empty-panel-note">Loading menus you joined...</p>
+      ) : null}
+      {!isFilteringMenus && currentUser && menus.length === 0 ? (
+        <p className="empty-panel-note">No menus joined by {currentUser} yet.</p>
+      ) : null}
 
       {menuToDelete ? (
         <div
