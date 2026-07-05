@@ -36,7 +36,7 @@ export default function DishCard({
             rel="noreferrer"
             target="_blank"
           >
-            Link
+            Ref Link
           </a>
         ) : (
           <span>—</span>
