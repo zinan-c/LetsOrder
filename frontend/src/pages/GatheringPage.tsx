@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   getGatheringByInviteCode,
@@ -86,8 +86,10 @@ export default function GatheringPage() {
   const { inviteCode } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const dishEditorFormRef = useRef<HTMLFormElement | null>(null);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [selectedChef, setSelectedChef] = useState(() => getCookieUser());
   const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
   const [currentGathering, setCurrentGathering] = useState<Gathering | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -151,6 +153,31 @@ export default function GatheringPage() {
 
     return 0;
   });
+  const chefRecommendations = useMemo(() => {
+    if (!selectedChef) {
+      return [];
+    }
+
+    const seenNames = new Set<string>();
+    return [...menuItems]
+      .filter((item) => item.owner_name === selectedChef)
+      .filter((item) => item.status === 'done' || item.status === 'prepared')
+      .filter((item) => item.id !== editingItem?.id)
+      .sort(
+        (left, right) =>
+          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+      )
+      .filter((item) => {
+        const key = item.name.trim().toLowerCase();
+        if (!key || seenNames.has(key)) {
+          return false;
+        }
+
+        seenNames.add(key);
+        return true;
+      })
+      .slice(0, 8);
+  }, [editingItem?.id, menuItems, selectedChef]);
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
   const isReviewReturn =
@@ -162,6 +189,7 @@ export default function GatheringPage() {
       const name = user?.display_name ?? '';
       setCurrentUser(name);
       setDisplayName(name);
+      setSelectedChef(name);
       setParticipantId(null);
     }
 
@@ -344,6 +372,7 @@ export default function GatheringPage() {
     }
 
     setEditingItem(null);
+    setSelectedChef(currentUser);
     setSaveError(null);
     setIsEditorOpen(true);
   }
@@ -354,6 +383,7 @@ export default function GatheringPage() {
     }
 
     setEditingItem(item);
+    setSelectedChef(item.owner_name ?? currentUser);
     setSaveError(null);
     setIsEditorOpen(true);
   }
@@ -361,6 +391,27 @@ export default function GatheringPage() {
   function closeEditor() {
     setIsEditorOpen(false);
     setEditingItem(null);
+  }
+
+  function fillInput(name: string, value: string | number | null | undefined) {
+    const field = dishEditorFormRef.current?.elements.namedItem(name);
+    if (
+      field instanceof HTMLInputElement ||
+      field instanceof HTMLSelectElement ||
+      field instanceof HTMLTextAreaElement
+    ) {
+      field.value = String(value ?? '');
+    }
+  }
+
+  function applyRecommendation(item: MenuItem) {
+    fillInput('name', item.name);
+    fillInput('category', item.category ?? 'Main');
+    fillInput('quantity', item.quantity);
+    fillInput('unit', item.unit ?? 'plates');
+    fillInput('reference_url', item.reference_url ?? '');
+    fillInput('note', item.note ?? '');
+    fillInput('status', 'planned');
   }
 
   async function handleSaveMenuItem(event: FormEvent<HTMLFormElement>) {
@@ -494,6 +545,7 @@ export default function GatheringPage() {
                   <option value="all">All</option>
                   <option value="planned">Planned</option>
                   <option value="prepared">Prepared</option>
+                  <option value="done">Done</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
               </label>
@@ -512,7 +564,7 @@ export default function GatheringPage() {
                 </select>
               </label>
               <label className="status-filter">
-                Owner
+                Chef
                 <select
                   value={ownerFilter}
                   onChange={(event) => setOwnerFilter(event.target.value)}
@@ -586,8 +638,9 @@ export default function GatheringPage() {
       {isEditorOpen ? (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>
           <form
+            ref={dishEditorFormRef}
             aria-modal="true"
-            className="dish-editor-modal"
+            className="dish-editor-modal dish-editor-with-recommendations"
             role="dialog"
             aria-labelledby="dish-editor-title"
             onClick={(event) => event.stopPropagation()}
@@ -664,16 +717,18 @@ export default function GatheringPage() {
               >
                 <option value="planned">Planned</option>
                 <option value="prepared">Prepared</option>
+                <option value="done">Done</option>
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
 
             <label>
-              Owner
+              Chef
               <select
                 key={`owner-${editingItem?.id ?? 'new'}`}
                 name="owner_name"
-                defaultValue={editingItem?.owner_name ?? currentUser}
+                value={selectedChef}
+                onChange={(event) => setSelectedChef(event.target.value)}
               >
                 {ownerOptions.map((owner) => (
                   <option key={owner} value={owner}>
@@ -717,6 +772,32 @@ export default function GatheringPage() {
                 Cancel
               </button>
             </div>
+
+            <aside className="dish-recommendations">
+              <p className="card-kicker">Recommend</p>
+              <h3>{selectedChef ? `${selectedChef}'s dishes` : 'Choose a Chef'}</h3>
+              {chefRecommendations.length > 0 ? (
+                <div className="recommendation-list">
+                  {chefRecommendations.map((item) => (
+                    <button
+                      className="recommendation-card"
+                      key={item.id}
+                      type="button"
+                      onClick={() => applyRecommendation(item)}
+                    >
+                      <strong>{item.name}</strong>
+                      <span>
+                        {item.category ?? 'Other'} · {item.quantity} {item.unit}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-panel-note">
+                  No previous dishes for this Chef yet.
+                </p>
+              )}
+            </aside>
           </form>
         </div>
       ) : null}

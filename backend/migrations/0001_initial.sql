@@ -35,7 +35,7 @@ CREATE TABLE menu_items (
     unit TEXT,
     owner_name TEXT,
     note TEXT,
-    status TEXT NOT NULL CHECK (status IN ('planned', 'prepared', 'cancelled')),
+    status TEXT NOT NULL CHECK (status IN ('planned', 'prepared', 'done', 'cancelled')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (gathering_id) REFERENCES gatherings(id),

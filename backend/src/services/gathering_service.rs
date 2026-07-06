@@ -1319,9 +1319,9 @@ fn validate_quantity(quantity: i64) -> AppResult<()> {
 
 fn validate_menu_status(status: &str) -> AppResult<()> {
     match status {
-        "planned" | "prepared" | "cancelled" => Ok(()),
+        "planned" | "prepared" | "done" | "cancelled" => Ok(()),
         _ => Err(AppError::Validation(
-            "status must be planned, prepared, or cancelled".to_string(),
+            "status must be planned, prepared, done, or cancelled".to_string(),
         )),
     }
 }

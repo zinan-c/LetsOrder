@@ -4,6 +4,7 @@ import StatusPill from './StatusPill';
 const toneByStatus = {
   planned: 'warm',
   prepared: 'green',
+  done: 'neutral',
   cancelled: 'red',
 } as const;
 
@@ -26,7 +27,7 @@ export default function DishCard({
         {item.quantity} {item.unit}
       </p>
       <p className="dish-owner">
-        {item.owner_name ? `Owner: ${item.owner_name}` : 'Owner: Unassigned'}
+        {item.owner_name ? `Chef: ${item.owner_name}` : 'Chef: Unassigned'}
       </p>
       <div className="dish-reference">
         {item.reference_url ? (

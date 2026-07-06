@@ -1,13 +1,7 @@
-mod config;
-mod db;
-mod errors;
-mod models;
-mod routes;
-mod services;
-
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use letsorder_backend::{config, db, routes, services};
 use tokio::{net::TcpListener, sync::broadcast, time};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

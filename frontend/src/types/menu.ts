@@ -1,4 +1,4 @@
-export type MenuItemStatus = 'planned' | 'prepared' | 'cancelled';
+export type MenuItemStatus = 'planned' | 'prepared' | 'done' | 'cancelled';
 
 export interface MenuItem {
   id: string;

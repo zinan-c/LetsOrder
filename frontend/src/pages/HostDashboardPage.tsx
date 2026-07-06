@@ -116,7 +116,7 @@ function formatFieldChange(log: ActivityLog) {
     case 'menu_item_unit_changed':
       return `changed the item unit from ${before} to ${after}`;
     case 'menu_item_owner_changed':
-      return `reassigned a menu item from ${before} to ${after}`;
+      return `changed the Chef from ${before} to ${after}`;
     case 'menu_item_reference_url_changed':
       return `updated the reference link from ${before} to ${after}`;
     case 'menu_item_note_changed':

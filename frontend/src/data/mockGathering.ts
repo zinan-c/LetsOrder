@@ -45,7 +45,7 @@ export const mockMenuItems: MenuItem[] = [
     unit: 'boxes',
     owner_name: 'Nico',
     note: 'Buy from the market near the station.',
-    status: 'prepared',
+    status: 'done',
     created_at: '2026-07-02T10:12:00+08:00',
     updated_at: '2026-07-02T10:12:00+08:00',
   },

@@ -411,7 +411,7 @@ FRONTEND_PORT=5174 ./scripts/frontend.sh
 ./scripts/check.sh
 ```
 
-This runs `cargo fmt --all --check`, `cargo check`, and `npm run build`.
+This runs `cargo fmt --all --check`, `cargo check`, `cargo test`, and `npm run build`.
 
 ## MVP Milestones
 
@@ -421,23 +421,6 @@ This runs `cargo fmt --all --check`, `cargo check`, and `npm run build`.
 4. Lock menu editing after expiration.
 5. Show read-only review page.
 6. Upload and browse gathering photos.
-
-## Integration Test Agenda
-
-1. Create gathering, verify invite code generation, host participant creation, and `gathering_created` activity log.
-2. Create gathering with a Chinese or mixed-language title, verify invite code falls back to an 8-character random key.
-3. List gatherings as admin and participant, verify archived menus are hidden and participant visibility is scoped.
-4. Join gathering twice with the same display name, verify the participant join is idempotent.
-5. Add menu item, verify persistence, participant activity time update, and `menu_item_created` activity log.
-6. Update menu item fields, verify field-level activity logs such as status, owner, quantity, and reference link changes.
-7. Paste a share-text reference link, verify the stored `reference_url` keeps only the actual URL.
-8. Lock gathering as admin or host, verify `is_locked`, `locked_at`, deadline alignment, and review availability.
-9. Reject lock, deadline update, and archive when actor is neither admin nor host.
-10. Upload photo after lock, verify file storage, default title fallback to `Image`, and `photo_uploaded` activity log.
-11. Update photo title as admin, verify changed caption and `photo_caption_updated` activity log.
-12. Delete photo as admin, verify photo row removal, best-effort resource file deletion, and `photo_deleted` activity log.
-13. Reject photo title update and delete when actor is not admin.
-14. Read review data after lock, verify cancelled dishes are excluded from the final menu and uploaded photos are listed.
 
 ## Future Ideas
 
