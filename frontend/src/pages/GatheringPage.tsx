@@ -105,21 +105,11 @@ export default function GatheringPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [ownerFilter, setOwnerFilter] = useState('all');
   const categoryFilterOptions = useMemo(
     () =>
       [
         ...new Set(
           menuItems.map((item) => item.category ?? 'Other').filter(Boolean),
-        ),
-      ].sort(),
-    [menuItems],
-  );
-  const ownerFilterOptions = useMemo(
-    () =>
-      [
-        ...new Set(
-          menuItems.map((item) => item.owner_name ?? 'Unassigned').filter(Boolean),
         ),
       ].sort(),
     [menuItems],
@@ -131,12 +121,8 @@ export default function GatheringPage() {
       categoryFilter === 'all'
         ? true
         : (item.category ?? 'Other') === categoryFilter;
-    const matchesOwner =
-      ownerFilter === 'all'
-        ? true
-        : (item.owner_name ?? 'Unassigned') === ownerFilter;
 
-    return matchesStatus && matchesCategory && matchesOwner;
+    return matchesStatus && matchesCategory;
   });
   const sortedMenuItems = [...filteredMenuItems].sort((left, right) => {
     if (left.status === right.status) {
@@ -559,20 +545,6 @@ export default function GatheringPage() {
                   {categoryFilterOptions.map((category) => (
                     <option key={category} value={category}>
                       {category}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="status-filter">
-                Chef
-                <select
-                  value={ownerFilter}
-                  onChange={(event) => setOwnerFilter(event.target.value)}
-                >
-                  <option value="all">All</option>
-                  {ownerFilterOptions.map((owner) => (
-                    <option key={owner} value={owner}>
-                      {owner}
                     </option>
                   ))}
                 </select>
