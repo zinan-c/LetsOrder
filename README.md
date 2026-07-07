@@ -31,8 +31,8 @@ LetsOrder is a lightweight family gathering menu collaboration system. A host cr
 - Build tool: Vite
 - Language: TypeScript
 - Routing: React Router
-- Styling: Tailwind CSS
-- Data fetching: TanStack Query or a small fetch wrapper for MVP
+- Styling: custom responsive CSS
+- Data fetching: TanStack Query with a small typed fetch wrapper
 
 ### Storage
 
@@ -89,7 +89,10 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - View the current menu.
 - Add menu items.
 - Edit existing menu items.
-- Mark menu items as planned, prepared, or cancelled.
+- Mark menu items as planned, prepared, done, or cancelled.
+- Store an optional reference link for each dish.
+- Filter menu items by status and category.
+- Recommend previously prepared or done dishes when a Chef is selected in the dish editor.
 - Keep cancelled items instead of deleting them.
 - Lock editing after the gathering expires.
 
@@ -97,7 +100,8 @@ The project can start with npm. If SQLx migrations are used from the command lin
 
 - Show the final menu after expiration.
 - Upload photos.
-- Add captions.
+- Add photo titles.
+- Allow admins to update photo titles or delete uploaded photos.
 - Browse uploaded photos later.
 
 ### Admin and Host Tools
@@ -115,6 +119,22 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Open the `Setting` navigation item after login.
 - Manage `Account Setting`.
 - Update the current user's display name or password.
+
+## Current Implementation Status
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Gathering creation | Done | Admin can create a gathering and land on the host page with a shareable invite URL. |
+| Invite and join flow | Done | Users log in or register on first entry, then join idempotently by account and gathering. |
+| Token auth | Done | Local bearer tokens expire after 48 hours and can be revoked by logout. |
+| Menu collaboration | Done | Add/edit dishes, status updates, Chef assignment, category/status filters, reference links, and dish recommendations are implemented. |
+| Menu locking | Done | Admin lock, deadline updates, review redirect, and the 10-minute expired-gathering lock job are implemented. |
+| Participants and activity | Done | Real participant lists and field-level activity logs are shown on the host/on-track page. |
+| Realtime refresh | Done | WebSocket refresh events invalidate gathering, menu, participant, activity, and photo queries. |
+| Review and photos | Done | Review page, real uploads, photo titles, and admin-only photo title/delete controls are implemented. |
+| Admin controls | Done | Archive/delete, lock, deadline update, and photo management are protected for admin users. |
+| Account settings | Done | Users can update display name/password and log out from `Setting`. |
+| Local dev scripts | Done | Dev startup clears local DB data, restarts stale servers, and runs backend/frontend together. |
 
 ## Main Workflows
 
@@ -167,7 +187,7 @@ Current time passes expires_at
 Participant opens review page
   -> sees final menu
   -> uploads photos
-  -> adds optional captions
+  -> adds optional photo titles
   -> photos become part of the gathering archive
 ```
 
@@ -250,6 +270,7 @@ erDiagram
         text description
         string invite_code UK
         string status
+        boolean is_locked
         timestamp starts_at
         timestamp expires_at
         timestamp locked_at
@@ -264,7 +285,7 @@ erDiagram
         uuid user_id FK
         string display_name
         string role
-        string access_token_hash
+        timestamp last_menu_activity_at
         timestamp joined_at
         timestamp created_at
         timestamp updated_at
@@ -297,6 +318,7 @@ erDiagram
         int quantity
         string unit
         string owner_name
+        string reference_url
         text note
         string status
         timestamp created_at
@@ -413,7 +435,7 @@ FRONTEND_PORT=5174 ./scripts/frontend.sh
 
 This runs `cargo fmt --all --check`, `cargo check`, `cargo test`, and `npm run build`.
 
-## MVP Milestones
+## Completed MVP Milestones
 
 1. Create gathering and invite URL.
 2. Join gathering as a participant.
@@ -422,9 +444,15 @@ This runs `cargo fmt --all --check`, `cargo check`, `cargo test`, and `npm run b
 5. Show read-only review page.
 6. Upload and browse gathering photos.
 
-## Future Ideas
+## Future Feature Backlog
 
 - QR code generation for invitation links.
 - Shopping list view derived from menu items.
 - Voting or emoji reactions for menu items.
-- S3-compatible storage for production photo uploads.
+- Dish templates or reusable gathering presets.
+- Calendar reminders before the menu lock deadline.
+- Stronger host delegation beyond the fixed system admin.
+- Production object storage for photo uploads, such as S3-compatible storage or Cloudflare R2.
+- Realtime presence indicators, such as who is currently viewing or editing the same gathering.
+- Conflict resolution for simultaneous edits beyond the current refresh-after-change behavior.
+- Export or print views for the final menu and photo memories.
