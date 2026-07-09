@@ -7,10 +7,13 @@ import GatheringPage from './pages/GatheringPage';
 import MenusPage from './pages/MenusPage';
 import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
-import { login, register } from './api/auth';
+import JoinGatheringPage from './pages/JoinGatheringPage';
+import RequireAuth from './components/RequireAuth';
+import { getMe, login, register } from './api/auth';
 import { getGatheringByInviteCode } from './api/gatherings';
 import type { User } from './types/auth';
 import {
+  clearAuthSession,
   getAuthToken,
   getCurrentUser,
   setAuthSession,
@@ -31,11 +34,15 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(() =>
+    Boolean(getAuthToken()),
+  );
   const inviteCode = useMemo(
     () => inviteCodeFromPath(location.pathname),
     [location.pathname],
   );
   const isAdmin = currentUser?.role === 'admin';
+  const isAuthenticated = Boolean(currentUser && getAuthToken());
 
   const loginMutation = useMutation({
     mutationFn: () => login(username.trim(), password),
@@ -66,12 +73,52 @@ export default function App() {
     function handleUserChanged(event: Event) {
       const user = event instanceof CustomEvent ? (event.detail as User | null) : null;
       setCurrentUser(user);
+      setIsCheckingSession(false);
     }
 
     window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
 
     return () => {
       window.removeEventListener(USER_CHANGED_EVENT, handleUserChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      setCurrentUser(null);
+      setIsCheckingSession(false);
+      return;
+    }
+
+    let ignore = false;
+
+    async function validateSession() {
+      setIsCheckingSession(true);
+      try {
+        const response = await getMe();
+        if (ignore) {
+          return;
+        }
+
+        setAuthSession(token, response.user);
+        setCurrentUser(response.user);
+      } catch {
+        if (!ignore) {
+          clearAuthSession();
+          setCurrentUser(null);
+        }
+      } finally {
+        if (!ignore) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+
+    validateSession();
+
+    return () => {
+      ignore = true;
     };
   }, []);
 
@@ -152,12 +199,83 @@ export default function App() {
 
       <main>
         <Routes>
-          <Route path="/" element={<CreateGatheringPage />} />
-          <Route path="/menus" element={<MenusPage />} />
-          <Route path="/menu/:inviteCode" element={<GatheringPage />} />
-          <Route path="/host/:inviteCode" element={<HostDashboardPage />} />
-          <Route path="/review/:inviteCode" element={<ReviewPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <CreateGatheringPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/join"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <JoinGatheringPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/menus"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <MenusPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/menu/:inviteCode"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <GatheringPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/host/:inviteCode"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <HostDashboardPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/review/:inviteCode"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <ReviewPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuth
+                isAuthenticated={isAuthenticated}
+                isCheckingSession={isCheckingSession}
+              >
+                <SettingsPage />
+              </RequireAuth>
+            }
+          />
         </Routes>
       </main>
 

@@ -81,6 +81,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - First-time users can create an account from the login dialog.
 - Generated first-use passwords use the entered name plus three random digits.
 - Join the gathering as a participant bound to the logged-in account.
+- Use `/join` as a fixed manual entry page for choosing an active gathering before entering its menu workspace.
 - Store an auth token locally in the browser.
 - Auth sessions expire after 48 hours and can be revoked by logout.
 
@@ -208,6 +209,7 @@ GET    /api/ws
 
 ```http
 POST   /api/gatherings
+GET    /api/gatherings/active
 GET    /api/gatherings/:inviteCode
 PATCH  /api/gatherings/:gatheringId
 POST   /api/gatherings/:gatheringId/lock
@@ -392,6 +394,7 @@ Default local URLs:
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8080`
 - Health check: `http://localhost:8080/health`
+- Manual active gathering entry: `http://localhost:5173/join`
 
 The script installs frontend dependencies when `frontend/node_modules` is missing. For SQLite development databases, it clears the database file before each startup so migrations rebuild a clean local state. Press `Ctrl+C` to stop both servers.
 

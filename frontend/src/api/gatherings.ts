@@ -63,6 +63,10 @@ export function listGatherings() {
   return apiRequest<ListGatheringsResponse>('/api/gatherings');
 }
 
+export function listActiveGatherings() {
+  return apiRequest<ListGatheringsResponse>('/api/gatherings/active');
+}
+
 export function getGatheringByInviteCode(inviteCode: string) {
   return apiRequest<GetGatheringResponse>(`/api/gatherings/${inviteCode}`);
 }

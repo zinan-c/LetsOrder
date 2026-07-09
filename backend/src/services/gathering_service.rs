@@ -141,6 +141,39 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
     Ok(rows)
 }
 
+pub async fn list_active_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>> {
+    let rows = sqlx::query_as::<_, GatheringListItem>(
+        r#"
+        SELECT
+            g.id,
+            g.title,
+            g.description,
+            g.invite_code,
+            g.status,
+            g.is_locked,
+            g.expires_at,
+            COUNT(DISTINCT m.id) AS item_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'prepared' THEN m.id END) AS prepared_count,
+            COUNT(DISTINCT p.id) AS participant_count,
+            g.created_at,
+            g.updated_at
+        FROM gatherings g
+        LEFT JOIN menu_items m ON m.gathering_id = g.id
+        LEFT JOIN participants p ON p.gathering_id = g.id
+        WHERE g.status = 'active'
+          AND g.is_locked = 0
+          AND g.expires_at > ?
+        GROUP BY g.id
+        ORDER BY g.expires_at ASC, g.created_at DESC
+        "#,
+    )
+    .bind(Utc::now())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
 pub async fn list_gatherings_for_user(
     pool: &DbPool,
     user_id: Uuid,
