@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  getGatheringByInviteCode,
   joinGathering,
+  joinGatheringByInviteCode,
   listParticipants,
 } from '../api/gatherings';
 import {
@@ -196,87 +196,41 @@ export default function GatheringPage() {
 
     async function loadMenuItems() {
       try {
-        const gatheringResponse = await getGatheringByInviteCode(currentInviteCode);
+        const joinResponse = await joinGatheringByInviteCode(currentInviteCode);
         if (ignore) {
           return;
         }
 
-        setCurrentGathering(gatheringResponse.gathering);
-        setGatheringId(gatheringResponse.gathering.id);
+        const gathering = joinResponse.gathering;
+        if (!gathering) {
+          throw new Error('Missing gathering response.');
+        }
 
-        if (gatheringResponse.gathering.is_locked && !isReviewReturn) {
+        setCurrentGathering(gathering);
+        setGatheringId(gathering.id);
+        setParticipantId(joinResponse.participant.id);
+        localStorage.setItem(
+          participantStorageKey(currentInviteCode),
+          joinResponse.participant.id,
+        );
+
+        if (gathering.is_locked && !isReviewReturn) {
           navigate(`/review/${currentInviteCode}`, { replace: true });
           return;
         }
 
-        let storedParticipantId = localStorage.getItem(
-          participantStorageKey(currentInviteCode),
-        );
-        const participantsResponse = await listParticipants(
-          gatheringResponse.gathering.id,
-        );
+        const participantsResponse = await listParticipants(gathering.id);
         if (!ignore) {
           setParticipants(participantsResponse.participants);
         }
 
         const cookieUser = getCookieUser();
-        const matchedCookieParticipant = cookieUser
-          ? participantsResponse.participants.find(
-              (participant) => participant.display_name === cookieUser,
-            )
-          : undefined;
-
-        if (
-          cookieUser &&
-          matchedCookieParticipant &&
-          storedParticipantId !== matchedCookieParticipant.id
-        ) {
-          storedParticipantId = matchedCookieParticipant.id;
-          localStorage.setItem(
-            participantStorageKey(currentInviteCode),
-            matchedCookieParticipant.id,
-          );
-          setParticipantId(matchedCookieParticipant.id);
+        if (cookieUser) {
           setCurrentUser(cookieUser);
           setDisplayName(cookieUser);
         }
 
-        if (storedParticipantId && !cookieUser) {
-          const storedParticipant = participantsResponse.participants.find(
-            (participant) => participant.id === storedParticipantId,
-          );
-
-          if (storedParticipant) {
-            setCurrentUser(storedParticipant.display_name);
-            setDisplayName(storedParticipant.display_name);
-            setCookieUser(storedParticipant.display_name);
-          }
-        }
-
-        if (!storedParticipantId && cookieUser) {
-          const joinResponse = await joinGathering(
-            gatheringResponse.gathering.id,
-            cookieUser,
-          );
-          storedParticipantId = joinResponse.participant.id;
-          localStorage.setItem(
-            participantStorageKey(currentInviteCode),
-            joinResponse.participant.id,
-          );
-          localStorage.setItem(
-            `letsorder:${currentInviteCode}:access_token`,
-            joinResponse.access_token,
-          );
-          if (!ignore) {
-            setParticipants((items) => [joinResponse.participant, ...items]);
-            setCurrentUser(cookieUser);
-            setDisplayName(cookieUser);
-          }
-        }
-
-        setParticipantId(storedParticipantId);
-
-        const menuResponse = await listMenuItems(gatheringResponse.gathering.id);
+        const menuResponse = await listMenuItems(gathering.id);
         if (!ignore) {
           setMenuItems(menuResponse.menu_items);
         }

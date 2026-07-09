@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::{
     errors::{AppError, AppResult},
     models::{
-        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest,
-        UpdateGatheringRequest, UpdatePhotoRequest,
+        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest, Participant,
+        UpdateGatheringRequest, UpdatePhotoRequest, User,
     },
     routes::{AppState, RealtimeEvent},
     services::{auth_service, gathering_service},
@@ -20,6 +20,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gatherings).post(create_gathering))
         .route("/active", get(list_active_gatherings))
+        .route(
+            "/invite/{invite_code}/participants",
+            post(join_gathering_by_invite_code),
+        )
         .route(
             "/{identifier}",
             get(get_gathering)
@@ -57,7 +61,9 @@ async fn list_gatherings(
 
 async fn list_active_gatherings(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_user(&state, &headers).await?;
     let gatherings = gathering_service::list_active_gatherings(&state.pool).await?;
     Ok(Json(serde_json::json!({ "gatherings": gatherings })))
 }
@@ -76,9 +82,11 @@ async fn create_gathering(
 async fn get_gathering(
     State(state): State<AppState>,
     Path(invite_code): Path<String>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     let gathering =
         gathering_service::get_gathering_by_invite_code(&state.pool, &invite_code).await?;
+    require_gathering_access(&state, &headers, gathering.id).await?;
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
 
@@ -146,10 +154,32 @@ async fn join_gathering(
     })))
 }
 
+async fn join_gathering_by_invite_code(
+    State(state): State<AppState>,
+    Path(invite_code): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<JoinGatheringRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let _ = payload;
+    let user = require_user(&state, &headers).await?;
+    let gathering =
+        gathering_service::get_gathering_by_invite_code(&state.pool, &invite_code).await?;
+    let participant =
+        auth_service::ensure_participant_for_user(&state.pool, gathering.id, user.id).await?;
+    notify_refresh(&state, Some(gathering.id));
+    Ok(Json(serde_json::json!({
+        "gathering": gathering,
+        "participant": participant,
+        "access_token": ""
+    })))
+}
+
 async fn list_participants(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_gathering_access(&state, &headers, gathering_id).await?;
     let participants = gathering_service::list_participants(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "participants": participants })))
 }
@@ -157,7 +187,9 @@ async fn list_participants(
 async fn list_activity_logs(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_gathering_access(&state, &headers, gathering_id).await?;
     let activity_logs = gathering_service::list_activity_logs(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "activity_logs": activity_logs })))
 }
@@ -165,7 +197,9 @@ async fn list_activity_logs(
 async fn list_photos(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_gathering_access(&state, &headers, gathering_id).await?;
     let photos = gathering_service::list_photos(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "photos": photos })))
 }
@@ -176,6 +210,7 @@ async fn upload_photo(
     headers: HeaderMap,
     multipart: Multipart,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_gathering_access(&state, &headers, gathering_id).await?;
     let photo = gathering_service::upload_photo(
         &state.pool,
         gathering_id,
@@ -190,7 +225,9 @@ async fn upload_photo(
 async fn list_menu_items(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    require_gathering_access(&state, &headers, gathering_id).await?;
     let menu_items = gathering_service::list_menu_items(&state.pool, gathering_id).await?;
     Ok(Json(serde_json::json!({ "menu_items": menu_items })))
 }
@@ -273,7 +310,25 @@ async fn ensure_admin(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
     }
 }
 
-async fn require_user(state: &AppState, headers: &HeaderMap) -> AppResult<crate::models::User> {
+async fn require_gathering_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    gathering_id: Uuid,
+) -> AppResult<Option<Participant>> {
+    let user = require_user(state, headers).await?;
+
+    if user.role == "admin" {
+        return Ok(None);
+    }
+
+    let participant = auth_service::participant_for_user(&state.pool, gathering_id, user.id)
+        .await?
+        .ok_or(AppError::Forbidden)?;
+
+    Ok(Some(participant))
+}
+
+async fn require_user(state: &AppState, headers: &HeaderMap) -> AppResult<User> {
     let Some(token) = optional_bearer_token(headers) else {
         return Err(AppError::Forbidden);
     };

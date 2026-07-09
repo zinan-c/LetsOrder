@@ -94,7 +94,15 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     .execute(pool)
     .await?;
 
-    let participant = if let Some(gathering_id) = payload.gathering_id {
+    let gathering_id = if let Some(gathering_id) = payload.gathering_id {
+        Some(gathering_id)
+    } else if let Some(invite_code) = payload.invite_code.as_deref() {
+        Some(gathering_id_by_invite_code(pool, invite_code).await?)
+    } else {
+        None
+    };
+
+    let participant = if let Some(gathering_id) = gathering_id {
         Some(ensure_participant_for_user(pool, gathering_id, user_id).await?)
     } else {
         None
@@ -304,6 +312,30 @@ pub async fn ensure_participant_for_user(
     get_participant_by_id(pool, participant_id).await
 }
 
+pub async fn participant_for_user(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    user_id: Uuid,
+) -> AppResult<Option<Participant>> {
+    let participant_id = sqlx::query_as::<_, (Uuid,)>(
+        r#"
+        SELECT id
+        FROM participants
+        WHERE gathering_id = ? AND user_id = ?
+        "#,
+    )
+    .bind(gathering_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .map(|(participant_id,)| participant_id);
+
+    match participant_id {
+        Some(participant_id) => get_participant_by_id(pool, participant_id).await.map(Some),
+        None => Ok(None),
+    }
+}
+
 async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
@@ -322,6 +354,26 @@ async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
     .await?;
 
     Ok(token)
+}
+
+async fn gathering_id_by_invite_code(pool: &DbPool, invite_code: &str) -> AppResult<Uuid> {
+    let invite_code = invite_code.trim();
+    if invite_code.is_empty() {
+        return Err(AppError::Validation("invite_code is required".to_string()));
+    }
+
+    sqlx::query_as::<_, (Uuid,)>(
+        r#"
+        SELECT id
+        FROM gatherings
+        WHERE invite_code = ?
+        "#,
+    )
+    .bind(invite_code)
+    .fetch_optional(pool)
+    .await?
+    .map(|(gathering_id,)| gathering_id)
+    .ok_or(AppError::NotFound)
 }
 
 async fn ensure_system_admin(pool: &DbPool) -> AppResult<Uuid> {

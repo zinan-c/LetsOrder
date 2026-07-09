@@ -12,12 +12,13 @@ export function login(username: string, password: string) {
   });
 }
 
-export function register(displayName: string, gatheringId?: string) {
+export function register(displayName: string, gatheringId?: string, inviteCode?: string) {
   return apiRequest<AuthResponse>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify({
       display_name: displayName,
       gathering_id: gatheringId,
+      invite_code: inviteCode,
     }),
   });
 }

@@ -82,6 +82,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Generated first-use passwords use the entered name plus three random digits.
 - Join the gathering as a participant bound to the logged-in account.
 - Use `/join` as a fixed manual entry page for choosing an active gathering before entering its menu workspace.
+- Use invite-code joining before loading a gathering menu so gathering data stays participant/admin protected.
 - Store an auth token locally in the browser.
 - Auth sessions expire after 48 hours and can be revoked by logout.
 
@@ -211,10 +212,13 @@ GET    /api/ws
 POST   /api/gatherings
 GET    /api/gatherings/active
 GET    /api/gatherings/:inviteCode
+POST   /api/gatherings/invite/:inviteCode/participants
 PATCH  /api/gatherings/:gatheringId
 POST   /api/gatherings/:gatheringId/lock
 DELETE /api/gatherings/:gatheringId
 ```
+
+`GET /api/gatherings/active` requires a valid token. Gathering detail, menu item, participant, activity log, and photo reads require either admin access or participant access for that gathering.
 
 ### Participants
 

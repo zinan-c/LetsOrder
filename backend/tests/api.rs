@@ -154,6 +154,22 @@ async fn register_user(app: &Router, display_name: &str, gathering_id: &str) -> 
     body
 }
 
+async fn register_user_without_gathering(app: &Router, display_name: &str) -> Value {
+    let (status, body) = request_json(
+        app,
+        Method::POST,
+        "/api/auth/register",
+        None,
+        json!({
+            "display_name": display_name
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    body
+}
+
 #[tokio::test]
 async fn auth_gathering_menu_activity_and_permissions_flow() {
     let (app, _) = test_app().await;
@@ -169,6 +185,60 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
             .chars()
             .all(|character| character.is_ascii_hexdigit())
     );
+
+    let (anonymous_active_status, _) =
+        request_empty(&app, Method::GET, "/api/gatherings/active", None).await;
+    assert_eq!(anonymous_active_status, StatusCode::FORBIDDEN);
+
+    let (admin_active_status, admin_active_body) = request_empty(
+        &app,
+        Method::GET,
+        "/api/gatherings/active",
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(admin_active_status, StatusCode::OK);
+    assert_eq!(admin_active_body["gatherings"][0]["id"], gathering_id);
+
+    let (anonymous_detail_status, _) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{invite_code}"),
+        None,
+    )
+    .await;
+    assert_eq!(anonymous_detail_status, StatusCode::FORBIDDEN);
+
+    let unjoined_response = register_user_without_gathering(&app, "Alex").await;
+    let unjoined_token = unjoined_response["token"].as_str().expect("unjoined token");
+    let (unjoined_menu_status, _) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/menu-items"),
+        Some(unjoined_token),
+    )
+    .await;
+    assert_eq!(unjoined_menu_status, StatusCode::FORBIDDEN);
+
+    let (invite_join_status, invite_join_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/invite/{invite_code}/participants"),
+        Some(unjoined_token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(invite_join_status, StatusCode::OK);
+    assert_eq!(invite_join_body["gathering"]["id"], gathering_id);
+
+    let (joined_menu_status, _) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/menu-items"),
+        Some(unjoined_token),
+    )
+    .await;
+    assert_eq!(joined_menu_status, StatusCode::OK);
 
     let user_response = register_user(&app, "Nico", gathering_id).await;
     let user_token = user_response["token"].as_str().expect("user token");

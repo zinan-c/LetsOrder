@@ -24,6 +24,7 @@ pub struct LoginRequest {
 pub struct RegisterRequest {
     pub display_name: String,
     pub gathering_id: Option<Uuid>,
+    pub invite_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

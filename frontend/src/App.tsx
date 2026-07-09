@@ -10,7 +10,6 @@ import SettingsPage from './pages/SettingsPage';
 import JoinGatheringPage from './pages/JoinGatheringPage';
 import RequireAuth from './components/RequireAuth';
 import { getMe, login, register } from './api/auth';
-import { getGatheringByInviteCode } from './api/gatherings';
 import type { User } from './types/auth';
 import {
   clearAuthSession,
@@ -54,12 +53,7 @@ export default function App() {
     },
   });
   const registerMutation = useMutation({
-    mutationFn: async () => {
-      const gathering = inviteCode
-        ? await getGatheringByInviteCode(inviteCode)
-        : null;
-      return register(displayName.trim(), gathering?.gathering.id);
-    },
+    mutationFn: () => register(displayName.trim(), undefined, inviteCode),
     onSuccess: (response) => {
       setAuthSession(response.token, response.user);
       setCurrentUser(response.user);

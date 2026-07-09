@@ -48,6 +48,7 @@ export interface UpdatePhotoResponse {
 }
 
 export interface JoinGatheringResponse {
+  gathering?: Gathering;
   participant: Participant;
   access_token: string;
 }
@@ -96,6 +97,16 @@ export function joinGathering(gatheringId: string, displayName: string) {
     {
       method: 'POST',
       body: JSON.stringify({ display_name: displayName }),
+    },
+  );
+}
+
+export function joinGatheringByInviteCode(inviteCode: string) {
+  return apiRequest<JoinGatheringResponse>(
+    `/api/gatherings/invite/${inviteCode}/participants`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
     },
   );
 }
