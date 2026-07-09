@@ -12,6 +12,7 @@
 *.db
 *.db-shm
 *.db-wal
+WORKING_LOG.md
 /backend/uploads/
 /backend/resources/uploads/
 

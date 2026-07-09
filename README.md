@@ -397,6 +397,20 @@ The script installs frontend dependencies when `frontend/node_modules` is missin
 
 Before starting, the script checks the configured backend and frontend ports and stops stale LetsOrder processes that are still listening there. This avoids accidentally talking to an older backend after code changes.
 
+### Stop Services
+
+Stop any LetsOrder backend or frontend process listening on the configured local ports:
+
+```bash
+./scripts/stop.sh
+```
+
+Optional port overrides:
+
+```bash
+PORT=18080 FRONTEND_PORT=5174 ./scripts/stop.sh
+```
+
 ### Start Backend Only
 
 ```bash
