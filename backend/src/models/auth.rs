@@ -33,6 +33,12 @@ pub struct UpdateAccountRequest {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateMemberRequest {
+    pub display_name: Option<String>,
+    pub password: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub user: User,

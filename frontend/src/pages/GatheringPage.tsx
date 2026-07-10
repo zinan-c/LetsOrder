@@ -208,11 +208,16 @@ export default function GatheringPage() {
 
         setCurrentGathering(gathering);
         setGatheringId(gathering.id);
-        setParticipantId(joinResponse.participant.id);
-        localStorage.setItem(
-          participantStorageKey(currentInviteCode),
-          joinResponse.participant.id,
-        );
+        if (joinResponse.participant) {
+          setParticipantId(joinResponse.participant.id);
+          localStorage.setItem(
+            participantStorageKey(currentInviteCode),
+            joinResponse.participant.id,
+          );
+        } else {
+          setParticipantId(null);
+          localStorage.removeItem(participantStorageKey(currentInviteCode));
+        }
 
         if (gathering.is_locked && !isReviewReturn) {
           navigate(`/review/${currentInviteCode}`, { replace: true });
@@ -254,15 +259,16 @@ export default function GatheringPage() {
   const ownerOptions = useMemo(() => {
     const names = new Set(
       participants
+        .filter((participant) => participant.display_name !== 'suite-admin')
         .map((participant) => participant.display_name)
         .filter(Boolean),
     );
 
-    if (currentUser) {
+    if (currentUser && currentUser !== 'suite-admin') {
       names.add(currentUser);
     }
 
-    if (editingItem?.owner_name) {
+    if (editingItem?.owner_name && editingItem.owner_name !== 'suite-admin') {
       names.add(editingItem.owner_name);
     }
 
@@ -287,9 +293,13 @@ export default function GatheringPage() {
 
     try {
       const response = await joinGathering(gatheringId, name);
+      const participant = response.participant;
+      if (!participant) {
+        throw new Error('System admin does not join menus as a participant.');
+      }
       localStorage.setItem(
         participantStorageKey(inviteCode),
-        response.participant.id,
+        participant.id,
       );
       localStorage.setItem(
         `letsorder:${inviteCode}:access_token`,
@@ -297,8 +307,8 @@ export default function GatheringPage() {
       );
       setCookieUser(name);
       setCurrentUser(name);
-      setParticipantId(response.participant.id);
-      setParticipants((items) => [response.participant, ...items]);
+      setParticipantId(participant.id);
+      setParticipants((items) => [participant, ...items]);
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : 'Failed to join menu.');
     } finally {

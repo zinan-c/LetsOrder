@@ -5,6 +5,14 @@ export interface MeResponse {
   user: User;
 }
 
+export interface MembersResponse {
+  members: User[];
+}
+
+export interface MemberResponse {
+  member: User;
+}
+
 export function login(username: string, password: string) {
   return apiRequest<AuthResponse>('/api/auth/login', {
     method: 'POST',
@@ -32,6 +40,23 @@ export function updateAccount(payload: {
   password?: string;
 }) {
   return apiRequest<MeResponse>('/api/auth/account', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listMembers() {
+  return apiRequest<MembersResponse>('/api/auth/members');
+}
+
+export function updateMember(
+  userId: string,
+  payload: {
+    display_name?: string;
+    password?: string;
+  },
+) {
+  return apiRequest<MemberResponse>(`/api/auth/members/${userId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });

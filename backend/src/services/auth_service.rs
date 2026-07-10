@@ -5,7 +5,8 @@ use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
     models::{
-        AuthResponse, LoginRequest, Participant, RegisterRequest, UpdateAccountRequest, User,
+        AuthResponse, LoginRequest, Participant, RegisterRequest, UpdateAccountRequest,
+        UpdateMemberRequest, User,
     },
 };
 
@@ -193,6 +194,84 @@ pub async fn update_account(
     get_user_by_id(pool, user.id).await
 }
 
+pub async fn list_members(pool: &DbPool, token: &str) -> AppResult<Vec<User>> {
+    ensure_admin_token(pool, token).await?;
+
+    let users = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, username, display_name, role, created_at, updated_at
+        FROM users
+        ORDER BY
+            CASE WHEN role = 'admin' THEN 0 ELSE 1 END,
+            display_name COLLATE NOCASE ASC,
+            created_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(users)
+}
+
+pub async fn update_member(
+    pool: &DbPool,
+    token: &str,
+    user_id: Uuid,
+    payload: UpdateMemberRequest,
+) -> AppResult<User> {
+    ensure_admin_token(pool, token).await?;
+    let target = get_user_by_id(pool, user_id).await?;
+
+    if target.username == SYSTEM_ADMIN_USERNAME {
+        return Ok(target);
+    }
+
+    let display_name = payload
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(target.display_name.as_str());
+    let password_hash = payload
+        .password
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(hash_password);
+    let now = Utc::now();
+
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET display_name = ?,
+            password_hash = COALESCE(?, password_hash),
+            updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(display_name)
+    .bind(password_hash)
+    .bind(now)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE participants
+        SET display_name = ?, updated_at = ?
+        WHERE user_id = ?
+        "#,
+    )
+    .bind(display_name)
+    .bind(now)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    get_user_by_id(pool, user_id).await
+}
+
 pub async fn user_from_token(pool: &DbPool, token: &str) -> AppResult<User> {
     let token = token.trim();
     if token.is_empty() {
@@ -228,6 +307,9 @@ pub async fn ensure_participant_for_user(
     user_id: Uuid,
 ) -> AppResult<Participant> {
     let user = get_user_by_id(pool, user_id).await?;
+    if user.role == "admin" {
+        return Err(AppError::Forbidden);
+    }
 
     if let Some((participant_id,)) = sqlx::query_as::<_, (Uuid,)>(
         r#"
@@ -354,6 +436,16 @@ async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
     .await?;
 
     Ok(token)
+}
+
+async fn ensure_admin_token(pool: &DbPool, token: &str) -> AppResult<User> {
+    let user = user_from_token(pool, token).await?;
+
+    if user.role == "admin" {
+        Ok(user)
+    } else {
+        Err(AppError::Forbidden)
+    }
 }
 
 async fn gathering_id_by_invite_code(pool: &DbPool, invite_code: &str) -> AppResult<Uuid> {

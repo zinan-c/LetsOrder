@@ -121,7 +121,7 @@ async fn create_gathering(app: &Router, admin_token: &str, title: &str, expires_
         json!({
             "title": title,
             "description": "Integration test gathering",
-            "host_name": "suite-admin",
+            "host_name": "Test Host",
             "expires_at": expires_at
         }),
     )
@@ -200,6 +200,72 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     assert_eq!(admin_active_status, StatusCode::OK);
     assert_eq!(admin_active_body["gatherings"][0]["id"], gathering_id);
 
+    let (reserved_host_status, reserved_host_body) = request_json(
+        &app,
+        Method::POST,
+        "/api/gatherings",
+        Some(&admin_token),
+        json!({
+            "title": "Reserved host name test",
+            "description": "Should be rejected",
+            "host_name": "suite-admin",
+            "expires_at": "2099-07-06T12:00:00Z"
+        }),
+    )
+    .await;
+    assert_eq!(reserved_host_status, StatusCode::BAD_REQUEST);
+    assert!(
+        reserved_host_body["error"]
+            .as_str()
+            .expect("validation error should exist")
+            .contains("系统管理员账号名称")
+    );
+
+    let (admin_join_status, admin_join_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/invite/{invite_code}/participants"),
+        Some(&admin_token),
+        json!({}),
+    )
+    .await;
+    assert_eq!(admin_join_status, StatusCode::OK);
+    assert!(admin_join_body["participant"].is_null());
+
+    let (admin_participants_status, admin_participants_body) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/participants"),
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(admin_participants_status, StatusCode::OK);
+    assert!(
+        admin_participants_body["participants"]
+            .as_array()
+            .expect("participants should be an array")
+            .iter()
+            .all(|participant| participant["display_name"] != "suite-admin")
+    );
+
+    let (admin_activity_status, admin_activity_body) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/activity-logs"),
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(admin_activity_status, StatusCode::OK);
+    assert!(
+        admin_activity_body["activity_logs"]
+            .as_array()
+            .expect("activity logs should be an array")
+            .iter()
+            .all(|log| {
+                log["action"] != "participant_joined" || log["actor_name"] != "suite-admin"
+            })
+    );
+
     let (anonymous_detail_status, _) = request_empty(
         &app,
         Method::GET,
@@ -242,9 +308,54 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
 
     let user_response = register_user(&app, "Nico", gathering_id).await;
     let user_token = user_response["token"].as_str().expect("user token");
+    let user_id = user_response["user"]["id"].as_str().expect("user id");
+    let username = user_response["user"]["username"]
+        .as_str()
+        .expect("username");
     let participant_id = user_response["participant"]["id"]
         .as_str()
         .expect("participant id");
+
+    let (forbidden_members_status, _) =
+        request_empty(&app, Method::GET, "/api/auth/members", Some(user_token)).await;
+    assert_eq!(forbidden_members_status, StatusCode::FORBIDDEN);
+
+    let (members_status, members_body) =
+        request_empty(&app, Method::GET, "/api/auth/members", Some(&admin_token)).await;
+    assert_eq!(members_status, StatusCode::OK);
+    assert!(
+        members_body["members"]
+            .as_array()
+            .is_some_and(|members| { members.iter().any(|member| member["id"] == user_id) })
+    );
+
+    let (update_member_status, update_member_body) = request_json(
+        &app,
+        Method::PATCH,
+        &format!("/api/auth/members/{user_id}"),
+        Some(&admin_token),
+        json!({
+            "display_name": "Nico Chef",
+            "password": "Nico_456"
+        }),
+    )
+    .await;
+    assert_eq!(update_member_status, StatusCode::OK);
+    assert_eq!(update_member_body["member"]["display_name"], "Nico Chef");
+
+    let (member_login_status, member_login_body) = request_json(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        json!({
+            "username": username,
+            "password": "Nico_456"
+        }),
+    )
+    .await;
+    assert_eq!(member_login_status, StatusCode::OK);
+    assert_eq!(member_login_body["user"]["display_name"], "Nico Chef");
 
     let (join_status, join_body) = request_json(
         &app,

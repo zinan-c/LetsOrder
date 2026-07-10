@@ -49,7 +49,7 @@ export interface UpdatePhotoResponse {
 
 export interface JoinGatheringResponse {
   gathering?: Gathering;
-  participant: Participant;
+  participant?: Participant | null;
   access_token: string;
 }
 

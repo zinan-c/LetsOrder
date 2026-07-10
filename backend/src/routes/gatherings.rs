@@ -145,6 +145,14 @@ async fn join_gathering(
 ) -> AppResult<Json<serde_json::Value>> {
     let _ = payload;
     let user = require_user(&state, &headers).await?;
+    if user.role == "admin" {
+        notify_refresh(&state, Some(gathering_id));
+        return Ok(Json(serde_json::json!({
+            "participant": null,
+            "access_token": ""
+        })));
+    }
+
     let participant =
         auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
     notify_refresh(&state, Some(gathering_id));
@@ -164,6 +172,15 @@ async fn join_gathering_by_invite_code(
     let user = require_user(&state, &headers).await?;
     let gathering =
         gathering_service::get_gathering_by_invite_code(&state.pool, &invite_code).await?;
+    if user.role == "admin" {
+        notify_refresh(&state, Some(gathering.id));
+        return Ok(Json(serde_json::json!({
+            "gathering": gathering,
+            "participant": null,
+            "access_token": ""
+        })));
+    }
+
     let participant =
         auth_service::ensure_participant_for_user(&state.pool, gathering.id, user.id).await?;
     notify_refresh(&state, Some(gathering.id));

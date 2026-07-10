@@ -27,6 +27,12 @@ pub async fn create_gathering(
         return Err(AppError::Validation("host_name is required".to_string()));
     }
 
+    if payload.host_name.trim() == "suite-admin" {
+        return Err(AppError::Validation(
+            "这是系统管理员账号名称，请使用系统管理员账号及密码登陆".to_string(),
+        ));
+    }
+
     let now = Utc::now();
     let gathering_id = Uuid::new_v4();
     let host_id = Uuid::new_v4();
@@ -349,10 +355,13 @@ pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<V
 
     let participants = sqlx::query_as::<_, Participant>(
         r#"
-        SELECT id, gathering_id, user_id, display_name, role, last_menu_activity_at,
-               joined_at, created_at, updated_at
-        FROM participants
-        WHERE gathering_id = ?
+        SELECT p.id, p.gathering_id, p.user_id, p.display_name, p.role, p.last_menu_activity_at,
+               p.joined_at, p.created_at, p.updated_at
+        FROM participants p
+        LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.gathering_id = ?
+          AND p.display_name != 'suite-admin'
+          AND COALESCE(u.role, '') != 'admin'
         ORDER BY COALESCE(last_menu_activity_at, joined_at) DESC
         "#,
     )
@@ -613,7 +622,12 @@ pub async fn list_activity_logs(
             a.created_at
         FROM activity_logs a
         LEFT JOIN participants p ON p.id = a.actor_id
+        LEFT JOIN users u ON u.id = p.user_id
         WHERE a.gathering_id = ?
+          AND NOT (
+              a.action = 'participant_joined'
+              AND (COALESCE(u.role, '') = 'admin' OR p.display_name = 'suite-admin')
+          )
         ORDER BY a.created_at DESC
         "#,
     )

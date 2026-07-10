@@ -27,10 +27,12 @@ export default function InviteLandingPage() {
         return;
       }
 
-      localStorage.setItem(
-        `letsorder:${inviteCode}:participant_id`,
-        response.participant.id,
-      );
+      if (response.participant) {
+        localStorage.setItem(
+          `letsorder:${inviteCode}:participant_id`,
+          response.participant.id,
+        );
+      }
       localStorage.setItem(
         `letsorder:${inviteCode}:access_token`,
         response.access_token,

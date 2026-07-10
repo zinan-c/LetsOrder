@@ -12,6 +12,9 @@ function defaultExpiry() {
   return toDateTimeLocalValue(date.toISOString());
 }
 
+const systemAdminHostNameMessage =
+  '这是系统管理员账号名称，请使用系统管理员账号及密码登陆';
+
 export default function CreateGatheringPage() {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
@@ -19,6 +22,7 @@ export default function CreateGatheringPage() {
   const [description, setDescription] = useState('');
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const isSystemAdminHostName = hostName.trim() === 'suite-admin';
 
   const mutation = useMutation({
     mutationFn: createGathering,
@@ -37,6 +41,10 @@ export default function CreateGatheringPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSystemAdminHostName) {
+      return;
+    }
+
     mutation.mutate({
       title,
       description,
@@ -89,6 +97,11 @@ export default function CreateGatheringPage() {
               onChange={(event) => setHostName(event.target.value)}
               placeholder="Aunt May"
             />
+            {isSystemAdminHostName ? (
+              <span className="field-note error-note">
+                {systemAdminHostNameMessage}
+              </span>
+            ) : null}
           </label>
 
           <label>
@@ -110,7 +123,7 @@ export default function CreateGatheringPage() {
             />
           </label>
 
-          <button disabled={mutation.isPending} type="submit">
+          <button disabled={mutation.isPending || isSystemAdminHostName} type="submit">
             {mutation.isPending ? 'Creating invitation...' : 'Create invitation'}
           </button>
         </form>
