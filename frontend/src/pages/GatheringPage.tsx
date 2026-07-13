@@ -12,12 +12,15 @@ import {
   type UpdateMenuItemPayload,
 } from '../api/menuItems';
 import { ApiError } from '../api/client';
+import ConflictModal from '../components/ConflictModal';
 import DishCard from '../components/DishCard';
+import DishEditorModal from '../components/DishEditorModal';
 import GatheringSummary from '../components/GatheringSummary';
+import JoinMenuModal from '../components/JoinMenuModal';
+import MenuFilters from '../components/MenuFilters';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
 import type { MenuItem, MenuItemStatus } from '../types/menu';
-import { formatDateTime } from '../utils/dateTime';
 import {
   getCookieUser,
   setCookieUser,
@@ -27,26 +30,6 @@ import {
 function participantStorageKey(inviteCode?: string) {
   return `letsorder:${inviteCode ?? 'unknown'}:participant_id`;
 }
-
-const categoryOptions = [
-  'Main',
-  'Protein',
-  'Vegetables',
-  'Snack',
-  'Dessert',
-  'Drink',
-  'Other',
-];
-
-const unitOptions = [
-  'plates',
-  'boxes',
-  'cups',
-  'pot',
-  'servings',
-  'pieces',
-  'bags',
-];
 
 interface MenuItemConflict {
   latestItem: MenuItem;
@@ -522,7 +505,6 @@ export default function GatheringPage() {
     }
   }
 
-  const editorTitle = isEditing ? 'Update this dish' : 'Add a new dish';
   const currentTitle = currentGathering?.title ?? mockGathering.title;
   const currentDescription =
     currentGathering?.description ?? mockGathering.description;
@@ -568,42 +550,15 @@ export default function GatheringPage() {
               }
             />
 
-            <div className="toolbar">
-              <label className="status-filter">
-                Status
-                <select
-                  value={statusFilter}
-                  onChange={(event) =>
-                    setStatusFilter(event.target.value as 'all' | MenuItemStatus)
-                  }
-                >
-                  <option value="all">All</option>
-                  <option value="planned">Planned</option>
-                  <option value="prepared">Prepared</option>
-                  <option value="done">Done</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-              <label className="status-filter">
-                Category
-                <select
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                >
-                  <option value="all">All</option>
-                  {categoryFilterOptions.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <span className="toolbar-note">
-                {isCurrentMenuLocked
-                  ? 'Menu editing is locked'
-                  : `Menu locks ${formatDateTime(currentExpiresAt)}`}
-              </span>
-            </div>
+            <MenuFilters
+              categoryFilter={categoryFilter}
+              categoryOptions={categoryFilterOptions}
+              expiresAt={currentExpiresAt}
+              isLocked={isCurrentMenuLocked}
+              statusFilter={statusFilter}
+              onCategoryFilterChange={setCategoryFilter}
+              onStatusFilterChange={setStatusFilter}
+            />
 
             <div className="dish-list">
               {sortedMenuItems.map((item) => (
@@ -620,265 +575,39 @@ export default function GatheringPage() {
       </section>
 
       {needsDisplayName ? (
-        <div className="modal-overlay" role="presentation">
-          <form
-            aria-modal="true"
-            aria-labelledby="join-menu-title"
-            className="confirm-modal join-menu-modal"
-            role="dialog"
-            onSubmit={handleJoinMenu}
-          >
-            <div>
-              <p className="card-kicker">Join menu</p>
-              <h2 id="join-menu-title">Tell us who is editing</h2>
-              <p>
-                Enter your name before viewing or changing this menu, so the host
-                can see who changed what.
-              </p>
-            </div>
-            <label>
-              Your display name
-              <input
-                required
-                autoFocus
-                minLength={1}
-                pattern=".*\S.*"
-                value={displayName}
-                placeholder="Grandma Lin"
-                onChange={(event) => setDisplayName(event.target.value)}
-              />
-            </label>
-            {joinError ? <p className="error">{joinError}</p> : null}
-            <button disabled={isJoining} type="submit">
-              {isJoining ? 'Joining...' : 'Join menu'}
-            </button>
-          </form>
-        </div>
+        <JoinMenuModal
+          displayName={displayName}
+          error={joinError}
+          isJoining={isJoining}
+          onDisplayNameChange={setDisplayName}
+          onSubmit={handleJoinMenu}
+        />
       ) : null}
 
       {isEditorOpen ? (
-        <div className="modal-overlay" role="presentation" onClick={closeEditor}>
-          <form
-            ref={dishEditorFormRef}
-            aria-modal="true"
-            className="dish-editor-modal dish-editor-with-recommendations"
-            role="dialog"
-            aria-labelledby="dish-editor-title"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={handleSaveMenuItem}
-          >
-            <div className="panel-header">
-              <div>
-                <p className="card-kicker">Dish editor</p>
-                <h2 id="dish-editor-title">{editorTitle}</h2>
-              </div>
-              <button className="icon-button" type="button" onClick={closeEditor}>
-                ×
-              </button>
-            </div>
-
-            <label>
-              Dish name
-              <input
-                key={`name-${editingItem?.id ?? 'new'}`}
-                autoFocus
-                name="name"
-                placeholder="Crispy tofu"
-                defaultValue={editingItem?.name ?? ''}
-              />
-            </label>
-
-            <label>
-              Category
-              <select
-                key={`category-${editingItem?.id ?? 'new'}`}
-                name="category"
-                defaultValue={editingItem?.category ?? 'Main'}
-              >
-                {categoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="split-fields">
-              <label>
-                Qty
-                <input
-                  key={`quantity-${editingItem?.id ?? 'new'}`}
-                  name="quantity"
-                  placeholder="1"
-                  defaultValue={editingItem?.quantity ?? 1}
-                />
-              </label>
-              <label>
-                Unit
-                <select
-                  key={`unit-${editingItem?.id ?? 'new'}`}
-                  name="unit"
-                  defaultValue={editingItem?.unit ?? 'plates'}
-                >
-                  {unitOptions.map((unit) => (
-                    <option key={unit} value={unit}>
-                      {unit}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label>
-              Status
-              <select
-                key={`status-${editingItem?.id ?? 'new'}`}
-                name="status"
-                defaultValue={editingItem?.status ?? 'planned'}
-              >
-                <option value="planned">Planned</option>
-                <option value="prepared">Prepared</option>
-                <option value="done">Done</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </label>
-
-            <label>
-              Chef
-              <select
-                key={`owner-${editingItem?.id ?? 'new'}`}
-                name="owner_name"
-                value={selectedChef}
-                onChange={(event) => setSelectedChef(event.target.value)}
-              >
-                {ownerOptions.map((owner) => (
-                  <option key={owner} value={owner}>
-                    {owner}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Reference link
-              <input
-                key={`reference-${editingItem?.id ?? 'new'}`}
-                name="reference_url"
-                placeholder="Paste a link or share text"
-                defaultValue={editingItem?.reference_url ?? ''}
-              />
-            </label>
-
-            <label>
-              Notes
-              <textarea
-                key={`note-${editingItem?.id ?? 'new'}`}
-                name="note"
-                placeholder="Any prep details?"
-                defaultValue={editingItem?.note ?? ''}
-              />
-            </label>
-
-            {saveError ? <p className="error">{saveError}</p> : null}
-
-            <div className="action-row modal-actions">
-              <button disabled={isSaving} type="submit">
-                {isSaving
-                  ? 'Saving...'
-                  : isEditing
-                    ? 'Save changes'
-                    : 'Add to menu'}
-              </button>
-              <button className="ghost-button" type="button" onClick={closeEditor}>
-                Cancel
-              </button>
-            </div>
-
-            <aside className="dish-recommendations">
-              <p className="card-kicker">Recommend</p>
-              <h3>{selectedChef ? `${selectedChef}'s dishes` : 'Choose a Chef'}</h3>
-              {chefRecommendations.length > 0 ? (
-                <div className="recommendation-list">
-                  {chefRecommendations.map((item) => (
-                    <button
-                      className="recommendation-card"
-                      key={item.id}
-                      type="button"
-                      onClick={() => applyRecommendation(item)}
-                    >
-                      <strong>{item.name}</strong>
-                      <span>
-                        {item.category ?? 'Other'} · {item.quantity} {item.unit}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="empty-panel-note">
-                  No previous dishes for this Chef yet.
-                </p>
-              )}
-            </aside>
-          </form>
-        </div>
+        <DishEditorModal
+          chefRecommendations={chefRecommendations}
+          editingItem={editingItem}
+          formRef={dishEditorFormRef}
+          isSaving={isSaving}
+          ownerOptions={ownerOptions}
+          saveError={saveError}
+          selectedChef={selectedChef}
+          onApplyRecommendation={applyRecommendation}
+          onClose={closeEditor}
+          onSelectedChefChange={setSelectedChef}
+          onSubmit={handleSaveMenuItem}
+        />
       ) : null}
 
       {conflict ? (
-        <div className="modal-overlay" role="presentation">
-          <section
-            aria-modal="true"
-            aria-labelledby="conflict-title"
-            className="confirm-modal conflict-modal"
-            role="dialog"
-          >
-            <div>
-              <p className="card-kicker">Conflict detected</p>
-              <h2 id="conflict-title">This dish changed while you were editing</h2>
-              <p>
-                Someone saved a newer version of this dish. Choose whether to
-                review the latest version or overwrite it with your changes.
-              </p>
-            </div>
-            <div className="conflict-comparison">
-              <div>
-                <strong>Latest</strong>
-                <span>{conflict.latestItem.name}</span>
-                <span>
-                  {conflict.latestItem.quantity} {conflict.latestItem.unit}
-                </span>
-                <span>{conflict.latestItem.status}</span>
-              </div>
-              <div>
-                <strong>Your Change</strong>
-                <span>{conflict.pendingPayload.name}</span>
-                <span>
-                  {conflict.pendingPayload.quantity} {conflict.pendingPayload.unit}
-                </span>
-                <span>{conflict.pendingPayload.status}</span>
-              </div>
-            </div>
-            <div className="action-row modal-actions">
-              <button type="button" onClick={useLatestConflictItem}>
-                Use latest
-              </button>
-              <button
-                className="danger-button"
-                disabled={isSaving}
-                type="button"
-                onClick={forceSaveConflictItem}
-              >
-                {isSaving ? 'Saving...' : 'Use mine'}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setConflict(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        </div>
+        <ConflictModal
+          conflict={conflict}
+          isSaving={isSaving}
+          onCancel={() => setConflict(null)}
+          onUseLatest={useLatestConflictItem}
+          onUseMine={forceSaveConflictItem}
+        />
       ) : null}
     </div>
   );

@@ -8,9 +8,11 @@ import MenusPage from './pages/MenusPage';
 import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
 import JoinGatheringPage from './pages/JoinGatheringPage';
+import AuthModal from './components/AuthModal';
 import RequireAuth from './components/RequireAuth';
 import { getMe, login, register } from './api/auth';
 import type { User } from './types/auth';
+import useRealtimeRefresh from './hooks/useRealtimeRefresh';
 import {
   clearAuthSession,
   getAuthToken,
@@ -42,6 +44,7 @@ export default function App() {
   );
   const isAdmin = currentUser?.role === 'admin';
   const isAuthenticated = Boolean(currentUser && getAuthToken());
+  useRealtimeRefresh(currentUser, queryClient);
 
   const loginMutation = useMutation({
     mutationFn: () => login(username.trim(), password),
@@ -115,56 +118,6 @@ export default function App() {
       ignore = true;
     };
   }, []);
-
-  useEffect(() => {
-    const token = getAuthToken();
-    if (!currentUser || !token) {
-      return;
-    }
-
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
-    const wsUrl = new URL('/api/ws', apiBaseUrl || window.location.origin);
-    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.searchParams.set('token', token);
-
-    const socket = new WebSocket(wsUrl);
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as {
-          event?: string;
-          gathering_id?: string | null;
-        };
-
-        if (message.event !== 'refresh') {
-          return;
-        }
-
-        queryClient.invalidateQueries({ queryKey: ['gatherings'] });
-        queryClient.invalidateQueries({ queryKey: ['gathering'] });
-
-        if (message.gathering_id) {
-          queryClient.invalidateQueries({
-            queryKey: ['menu-items', message.gathering_id],
-          });
-          queryClient.invalidateQueries({
-            queryKey: ['participants', message.gathering_id],
-          });
-          queryClient.invalidateQueries({
-            queryKey: ['activity-logs', message.gathering_id],
-          });
-          queryClient.invalidateQueries({
-            queryKey: ['photos', message.gathering_id],
-          });
-        }
-      } catch {
-        return;
-      }
-    };
-
-    return () => {
-      socket.close();
-    };
-  }, [currentUser, queryClient]);
 
   function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -274,113 +227,22 @@ export default function App() {
       </main>
 
       {!currentUser || generatedPassword ? (
-        <div className="modal-overlay" role="presentation">
-          {generatedPassword && currentUser ? (
-            <section
-              aria-modal="true"
-              aria-labelledby="generated-password-title"
-              className="confirm-modal join-menu-modal"
-              role="dialog"
-            >
-              <div>
-                <p className="card-kicker">Account ready</p>
-                <h2 id="generated-password-title">Save your login</h2>
-                <p>Your password is generated from your name plus three random digits.</p>
-              </div>
-              <div className="result-panel">
-                <strong>Username: {username}</strong>
-                <strong>Password: {generatedPassword}</strong>
-              </div>
-              <button type="button" onClick={() => setGeneratedPassword(null)}>
-                Continue
-              </button>
-            </section>
-          ) : authMode === 'login' ? (
-            <form
-              aria-modal="true"
-              aria-labelledby="login-title"
-              className="confirm-modal join-menu-modal"
-              role="dialog"
-              onSubmit={handleLogin}
-            >
-              <div>
-                <p className="card-kicker">Welcome back</p>
-                <h2 id="login-title">Log in to LetsOrder</h2>
-                <p>Use your account before viewing or changing gathering menus.</p>
-              </div>
-              <label>
-                Username
-                <input
-                  required
-                  autoFocus
-                  value={username}
-                  placeholder="suite-admin"
-                  onChange={(event) => setUsername(event.target.value)}
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  required
-                  type="password"
-                  value={password}
-                  placeholder="Password"
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
-              {loginMutation.isError ? (
-                <p className="error">Login failed. Please check your username and password.</p>
-              ) : null}
-              <button disabled={loginMutation.isPending} type="submit">
-                {loginMutation.isPending ? 'Logging in...' : 'Log in'}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setAuthMode('register')}
-              >
-                First time? Click here
-              </button>
-            </form>
-          ) : (
-            <form
-              aria-modal="true"
-              aria-labelledby="register-title"
-              className="confirm-modal join-menu-modal"
-              role="dialog"
-              onSubmit={handleRegister}
-            >
-              <div>
-                <p className="card-kicker">First time</p>
-                <h2 id="register-title">Tell us who you are</h2>
-                <p>Enter your name and we will create your login for this gathering.</p>
-              </div>
-              <label>
-                Your name
-                <input
-                  required
-                  autoFocus
-                  value={displayName}
-                  placeholder="Grandma Lin"
-                  onChange={(event) => setDisplayName(event.target.value)}
-                />
-              </label>
-              {registerMutation.isError ? (
-                <p className="error">Could not create your account.</p>
-              ) : null}
-              <button disabled={registerMutation.isPending} type="submit">
-                {registerMutation.isPending ? 'Creating...' : 'Create account'}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => setAuthMode('login')}
-              >
-                Back to login
-              </button>
-            </form>
-          )}
-        </div>
+        <AuthModal
+          authMode={authMode}
+          displayName={displayName}
+          generatedPassword={generatedPassword}
+          loginMutation={loginMutation}
+          password={password}
+          registerMutation={registerMutation}
+          username={username}
+          onAuthModeChange={setAuthMode}
+          onContinueGeneratedPassword={() => setGeneratedPassword(null)}
+          onDisplayNameChange={setDisplayName}
+          onLogin={handleLogin}
+          onPasswordChange={setPassword}
+          onRegister={handleRegister}
+          onUsernameChange={setUsername}
+        />
       ) : null}
     </div>
   );
