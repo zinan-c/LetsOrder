@@ -460,6 +460,16 @@ FRONTEND_PORT=5174 ./scripts/frontend.sh
 
 This runs `cargo fmt --all --check`, `cargo check`, `cargo test`, and `npm run build`.
 
+### Run Frontend E2E
+
+```bash
+cd frontend
+npx playwright install chromium
+npm run e2e
+```
+
+The Playwright suite starts the Rust backend and Vite frontend automatically, then verifies protected-route behavior and stale menu item conflict handling.
+
 ## Completed MVP Milestones
 
 1. Create gathering and invite URL.
