@@ -13,6 +13,7 @@ export interface MenuItem {
   reference_url?: string | null;
   note?: string | null;
   status: MenuItemStatus;
+  revision: number;
   created_at: string;
   updated_at: string;
 }

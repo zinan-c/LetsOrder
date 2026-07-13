@@ -15,6 +15,8 @@ pub enum AppError {
     Forbidden,
     #[error("validation failed: {0}")]
     Validation(String),
+    #[error("conflict")]
+    Conflict(serde_json::Value),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }
@@ -31,8 +33,13 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden => StatusCode::FORBIDDEN,
             AppError::Validation(_) => StatusCode::BAD_REQUEST,
+            AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
+
+        if let AppError::Conflict(body) = self {
+            return (status, Json(body)).into_response();
+        }
 
         let body = Json(ErrorBody {
             error: self.to_string(),

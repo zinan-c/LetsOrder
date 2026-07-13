@@ -9,7 +9,9 @@ import {
   createMenuItem,
   listMenuItems,
   updateMenuItem,
+  type UpdateMenuItemPayload,
 } from '../api/menuItems';
+import { ApiError } from '../api/client';
 import DishCard from '../components/DishCard';
 import GatheringSummary from '../components/GatheringSummary';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
@@ -46,6 +48,11 @@ const unitOptions = [
   'bags',
 ];
 
+interface MenuItemConflict {
+  latestItem: MenuItem;
+  pendingPayload: UpdateMenuItemPayload;
+}
+
 function normalizeReferenceUrl(value: FormDataEntryValue | null) {
   const text = String(value ?? '').trim();
   const url = text
@@ -77,8 +84,29 @@ function createLocalMenuItem(
     reference_url: normalizeReferenceUrl(formData.get('reference_url')) || null,
     note: String(formData.get('note') ?? '').trim() || null,
     status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+    revision: (editingItem?.revision ?? 0) + 1,
     created_at: editingItem?.created_at ?? now,
     updated_at: now,
+  };
+}
+
+function buildUpdatePayload(
+  formData: FormData,
+  participantId: string,
+  currentUser: string,
+  expectedRevision: number,
+): UpdateMenuItemPayload {
+  return {
+    updated_by: participantId,
+    name: String(formData.get('name') ?? '').trim(),
+    category: String(formData.get('category') ?? '').trim(),
+    quantity: Number(formData.get('quantity') || 1),
+    unit: String(formData.get('unit') ?? '').trim(),
+    owner_name: String(formData.get('owner_name') ?? '').trim() || currentUser,
+    reference_url: normalizeReferenceUrl(formData.get('reference_url')),
+    note: String(formData.get('note') ?? '').trim(),
+    status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+    expected_revision: expectedRevision,
   };
 }
 
@@ -103,6 +131,7 @@ export default function GatheringPage() {
   const [isJoining, setIsJoining] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [conflict, setConflict] = useState<MenuItemConflict | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const categoryFilterOptions = useMemo(
@@ -341,6 +370,7 @@ export default function GatheringPage() {
   function closeEditor() {
     setIsEditorOpen(false);
     setEditingItem(null);
+    setConflict(null);
   }
 
   function fillInput(name: string, value: string | number | null | undefined) {
@@ -381,18 +411,13 @@ export default function GatheringPage() {
     try {
       if (canUseApi && gatheringId && participantId) {
         if (editingItem) {
-          const response = await updateMenuItem(editingItem.id, {
-            updated_by: participantId,
-            name,
-            category: String(formData.get('category') ?? '').trim(),
-            quantity: Number(formData.get('quantity') || 1),
-            unit: String(formData.get('unit') ?? '').trim(),
-            owner_name:
-              String(formData.get('owner_name') ?? '').trim() || currentUser,
-            reference_url: normalizeReferenceUrl(formData.get('reference_url')),
-            note: String(formData.get('note') ?? '').trim(),
-            status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
-          });
+          const pendingPayload = buildUpdatePayload(
+            formData,
+            participantId,
+            currentUser,
+            editingItem.revision,
+          );
+          const response = await updateMenuItem(editingItem.id, pendingPayload);
 
           setMenuItems((items) =>
             items.map((item) =>
@@ -427,6 +452,66 @@ export default function GatheringPage() {
         }
       }
 
+      closeEditor();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const body = error.body as { latest_menu_item?: MenuItem } | null;
+        if (editingItem && body?.latest_menu_item && participantId) {
+          setConflict({
+            latestItem: body.latest_menu_item,
+            pendingPayload: buildUpdatePayload(
+              formData,
+              participantId,
+              currentUser,
+              body.latest_menu_item.revision,
+            ),
+          });
+          setMenuItems((items) =>
+            items.map((item) =>
+              item.id === body.latest_menu_item?.id
+                ? body.latest_menu_item
+                : item,
+            ),
+          );
+          return;
+        }
+      }
+
+      setSaveError(
+        error instanceof Error ? error.message : 'Failed to save menu item.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function useLatestConflictItem() {
+    if (!conflict) {
+      return;
+    }
+
+    setEditingItem(conflict.latestItem);
+    setSelectedChef(conflict.latestItem.owner_name ?? currentUser);
+    setConflict(null);
+    setSaveError('Loaded the latest dish. Review it, then save again if needed.');
+  }
+
+  async function forceSaveConflictItem() {
+    if (!conflict || !editingItem) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const response = await updateMenuItem(editingItem.id, conflict.pendingPayload);
+      setMenuItems((items) =>
+        items.map((item) =>
+          item.id === response.menu_item.id ? response.menu_item : item,
+        ),
+      );
+      setConflict(null);
       closeEditor();
     } catch (error) {
       setSaveError(
@@ -735,6 +820,64 @@ export default function GatheringPage() {
               )}
             </aside>
           </form>
+        </div>
+      ) : null}
+
+      {conflict ? (
+        <div className="modal-overlay" role="presentation">
+          <section
+            aria-modal="true"
+            aria-labelledby="conflict-title"
+            className="confirm-modal conflict-modal"
+            role="dialog"
+          >
+            <div>
+              <p className="card-kicker">Conflict detected</p>
+              <h2 id="conflict-title">This dish changed while you were editing</h2>
+              <p>
+                Someone saved a newer version of this dish. Choose whether to
+                review the latest version or overwrite it with your changes.
+              </p>
+            </div>
+            <div className="conflict-comparison">
+              <div>
+                <strong>Latest</strong>
+                <span>{conflict.latestItem.name}</span>
+                <span>
+                  {conflict.latestItem.quantity} {conflict.latestItem.unit}
+                </span>
+                <span>{conflict.latestItem.status}</span>
+              </div>
+              <div>
+                <strong>Your Change</strong>
+                <span>{conflict.pendingPayload.name}</span>
+                <span>
+                  {conflict.pendingPayload.quantity} {conflict.pendingPayload.unit}
+                </span>
+                <span>{conflict.pendingPayload.status}</span>
+              </div>
+            </div>
+            <div className="action-row modal-actions">
+              <button type="button" onClick={useLatestConflictItem}>
+                Use latest
+              </button>
+              <button
+                className="danger-button"
+                disabled={isSaving}
+                type="button"
+                onClick={forceSaveConflictItem}
+              >
+                {isSaving ? 'Saving...' : 'Use mine'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setConflict(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
     </div>

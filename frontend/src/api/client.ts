@@ -2,6 +2,17 @@ import { clearAuthSession, getAuthToken } from '../utils/user';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public body: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -19,11 +30,12 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    const body = await response.json().catch(() => null);
     if (response.status === 401) {
       clearAuthSession();
     }
 
-    throw new Error(`API request failed: ${response.status}`);
+    throw new ApiError(`API request failed: ${response.status}`, response.status, body);
   }
 
   if (response.status === 204) {

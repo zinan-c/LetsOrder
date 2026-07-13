@@ -391,6 +391,7 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
         create_item_body["menu_item"]["reference_url"],
         "http://xhslink.com/o/3shicEMk8TL"
     );
+    assert_eq!(create_item_body["menu_item"]["revision"], 1);
 
     let menu_item_id = create_item_body["menu_item"]["id"]
         .as_str()
@@ -403,13 +404,31 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
         json!({
             "updated_by": participant_id,
             "quantity": 3,
-            "status": "done"
+            "status": "done",
+            "expected_revision": 1
         }),
     )
     .await;
     assert_eq!(update_item_status, StatusCode::OK);
     assert_eq!(update_item_body["menu_item"]["quantity"], 3);
     assert_eq!(update_item_body["menu_item"]["status"], "done");
+    assert_eq!(update_item_body["menu_item"]["revision"], 2);
+
+    let (stale_update_status, stale_update_body) = request_json(
+        &app,
+        Method::PATCH,
+        &format!("/api/menu-items/{menu_item_id}"),
+        Some(user_token),
+        json!({
+            "updated_by": participant_id,
+            "quantity": 5,
+            "expected_revision": 1
+        }),
+    )
+    .await;
+    assert_eq!(stale_update_status, StatusCode::CONFLICT);
+    assert_eq!(stale_update_body["latest_menu_item"]["revision"], 2);
+    assert_eq!(stale_update_body["submitted"]["quantity"], 5);
 
     let (activity_status, activity_body) = request_empty(
         &app,

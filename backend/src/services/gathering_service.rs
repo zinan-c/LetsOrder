@@ -378,7 +378,7 @@ pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec
     let items = sqlx::query_as::<_, MenuItem>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
-               unit, owner_name, reference_url, note, status, created_at, updated_at
+               unit, owner_name, reference_url, note, status, revision, created_at, updated_at
         FROM menu_items
         WHERE gathering_id = ?
         ORDER BY created_at ASC
@@ -413,9 +413,9 @@ pub async fn create_menu_item(
         r#"
         INSERT INTO menu_items (
             id, gathering_id, created_by, name, category, quantity, unit,
-            owner_name, reference_url, note, status, created_at, updated_at
+            owner_name, reference_url, note, status, revision, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         "#,
     )
     .bind(menu_item_id)
@@ -457,6 +457,17 @@ pub async fn update_menu_item(
     let current = get_menu_item_by_id(pool, menu_item_id).await?;
     ensure_gathering_editable(pool, current.gathering_id).await?;
     ensure_participant_in_gathering(pool, current.gathering_id, payload.updated_by).await?;
+
+    if payload
+        .expected_revision
+        .is_some_and(|expected_revision| expected_revision != current.revision)
+    {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "menu item was updated by someone else",
+            "latest_menu_item": current,
+            "submitted": payload
+        })));
+    }
 
     let before = current.clone();
 
@@ -503,6 +514,7 @@ pub async fn update_menu_item(
             reference_url = ?,
             note = ?,
             status = ?,
+            revision = revision + 1,
             updated_at = ?
         WHERE id = ?
         "#,
@@ -1014,7 +1026,7 @@ async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<Men
     sqlx::query_as::<_, MenuItem>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
-               unit, owner_name, reference_url, note, status, created_at, updated_at
+               unit, owner_name, reference_url, note, status, revision, created_at, updated_at
         FROM menu_items
         WHERE id = ?
         "#,

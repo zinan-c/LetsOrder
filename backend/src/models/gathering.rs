@@ -85,6 +85,7 @@ pub struct MenuItem {
     pub reference_url: Option<String>,
     pub note: Option<String>,
     pub status: String,
+    pub revision: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -102,7 +103,7 @@ pub struct CreateMenuItemRequest {
     pub status: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateMenuItemRequest {
     pub updated_by: Uuid,
     pub name: Option<String>,
@@ -113,6 +114,7 @@ pub struct UpdateMenuItemRequest {
     pub reference_url: Option<String>,
     pub note: Option<String>,
     pub status: Option<String>,
+    pub expected_revision: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]

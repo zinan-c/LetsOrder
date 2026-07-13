@@ -829,6 +829,29 @@ h1 {
   width: min(520px, 100%);
 }
 
+.conflict-modal {
+  width: min(680px, 100%);
+}
+
+.conflict-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.conflict-comparison > div {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid #fed7aa;
+  border-radius: 1rem;
+  background: #fff7ed;
+}
+
+.conflict-comparison strong {
+  color: #7c2d12;
+}
+
 .join-panel h2,
 .join-panel p,
 .join-menu-modal h2,
@@ -1107,6 +1130,10 @@ h1 {
   }
 
   .join-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .conflict-comparison {
     grid-template-columns: 1fr;
   }
 

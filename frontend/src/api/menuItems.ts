@@ -31,6 +31,7 @@ export interface UpdateMenuItemPayload {
   reference_url?: string;
   note?: string;
   status?: MenuItemStatus;
+  expected_revision?: number;
 }
 
 export function listMenuItems(gatheringId: string) {

@@ -237,6 +237,10 @@ PATCH  /api/menu-items/:menuItemId
 
 Menu items should not have a public delete endpoint in the MVP. Use `status = cancelled` instead.
 
+Menu item updates use optimistic concurrency control. Clients send `expected_revision`
+with `PATCH /api/menu-items/:menuItemId`; if another user has saved a newer revision,
+the API returns `409 Conflict` with the latest menu item and the submitted payload.
+
 ### Photos
 
 ```http
@@ -475,5 +479,4 @@ This runs `cargo fmt --all --check`, `cargo check`, `cargo test`, and `npm run b
 - Stronger host delegation beyond the fixed system admin.
 - Production object storage for photo uploads, such as S3-compatible storage or Cloudflare R2.
 - Realtime presence indicators, such as who is currently viewing or editing the same gathering.
-- Conflict resolution for simultaneous edits beyond the current refresh-after-change behavior.
 - Export or print views for the final menu and photo memories.
