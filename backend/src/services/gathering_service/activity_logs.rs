@@ -1,13 +1,17 @@
 use uuid::Uuid;
 
-use crate::{db::DbPool, errors::AppResult, models::ActivityLog};
+use crate::{
+    db::DbPool,
+    errors::AppResult,
+    models::{ActivityLog, ActivityLogRow},
+};
 
 use super::common::get_gathering_by_id;
 
 pub async fn list_activity_logs(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<ActivityLog>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
-    let logs = sqlx::query_as::<_, ActivityLog>(
+    let rows = sqlx::query_as::<_, ActivityLogRow>(
         r#"
         SELECT
             a.id,
@@ -30,9 +34,9 @@ pub async fn list_activity_logs(pool: &DbPool, gathering_id: Uuid) -> AppResult<
         ORDER BY a.created_at DESC
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .fetch_all(pool)
     .await?;
 
-    Ok(logs)
+    rows.into_iter().map(TryInto::try_into).collect()
 }

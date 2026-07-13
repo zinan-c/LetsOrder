@@ -6,11 +6,14 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
-    models::{Gathering, MenuItem, Participant, Photo},
+    models::{
+        Gathering, GatheringRow, MenuItem, MenuItemRow, Participant, ParticipantRow, Photo,
+        PhotoRow,
+    },
 };
 
 pub(super) async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> AppResult<Gathering> {
-    sqlx::query_as::<_, Gathering>(
+    let row = sqlx::query_as::<_, GatheringRow>(
         r#"
         SELECT id, title, description, invite_code, status, starts_at, expires_at,
                is_locked, locked_at, archived_at, created_at, updated_at
@@ -18,14 +21,16 @@ pub(super) async fn get_gathering_by_id(pool: &DbPool, gathering_id: Uuid) -> Ap
         WHERE id = ?
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 pub(super) async fn get_photo_by_id(pool: &DbPool, photo_id: Uuid) -> AppResult<Photo> {
-    sqlx::query_as::<_, Photo>(
+    let row = sqlx::query_as::<_, PhotoRow>(
         r#"
         SELECT id, gathering_id, uploaded_by, file_url, thumbnail_url, caption,
                taken_at, created_at, updated_at
@@ -33,17 +38,19 @@ pub(super) async fn get_photo_by_id(pool: &DbPool, photo_id: Uuid) -> AppResult<
         WHERE id = ?
         "#,
     )
-    .bind(photo_id)
+    .bind(photo_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 pub(super) async fn get_participant_by_id(
     pool: &DbPool,
     participant_id: Uuid,
 ) -> AppResult<Participant> {
-    sqlx::query_as::<_, Participant>(
+    let row = sqlx::query_as::<_, ParticipantRow>(
         r#"
         SELECT id, gathering_id, user_id, display_name, role, last_menu_activity_at,
                joined_at, created_at, updated_at
@@ -51,10 +58,12 @@ pub(super) async fn get_participant_by_id(
         WHERE id = ?
         "#,
     )
-    .bind(participant_id)
+    .bind(participant_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 pub(super) async fn get_or_create_participant_by_name(
@@ -62,19 +71,19 @@ pub(super) async fn get_or_create_participant_by_name(
     gathering_id: Uuid,
     display_name: &str,
 ) -> AppResult<Uuid> {
-    if let Some((participant_id,)) = sqlx::query_as::<_, (Uuid,)>(
+    if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM participants
         WHERE gathering_id = ? AND display_name = ?
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .bind(display_name)
     .fetch_optional(pool)
     .await?
     {
-        return Ok(participant_id);
+        return parse_uuid(&participant_id);
     }
 
     let now = Utc::now();
@@ -89,8 +98,8 @@ pub(super) async fn get_or_create_participant_by_name(
         VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
         "#,
     )
-    .bind(participant_id)
-    .bind(gathering_id)
+    .bind(participant_id.to_string())
+    .bind(gathering_id.to_string())
     .bind(display_name)
     .bind(&access_token)
     .bind(now)
@@ -114,7 +123,7 @@ pub(super) async fn get_or_create_participant_by_name(
 }
 
 pub(super) async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<MenuItem> {
-    sqlx::query_as::<_, MenuItem>(
+    let row = sqlx::query_as::<_, MenuItemRow>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
                unit, owner_name, reference_url, note, status, revision, created_at, updated_at
@@ -122,10 +131,12 @@ pub(super) async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> Ap
         WHERE id = ?
         "#,
     )
-    .bind(menu_item_id)
+    .bind(menu_item_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 pub(super) async fn ensure_participant_in_gathering(
@@ -140,8 +151,8 @@ pub(super) async fn ensure_participant_in_gathering(
         WHERE id = ? AND gathering_id = ?
         "#,
     )
-    .bind(participant_id)
-    .bind(gathering_id)
+    .bind(participant_id.to_string())
+    .bind(gathering_id.to_string())
     .fetch_one(pool)
     .await?;
 
@@ -181,7 +192,7 @@ pub(super) async fn ensure_actor_can_manage(
         WHERE gathering_id = ? AND display_name = ?
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .bind(actor_name)
     .fetch_optional(pool)
     .await?;
@@ -215,7 +226,7 @@ pub(super) async fn sync_expired_gathering(
         )
         .bind(now)
         .bind(now)
-        .bind(gathering.id)
+        .bind(gathering.id.to_string())
         .execute(pool)
         .await?;
 
@@ -242,12 +253,12 @@ pub(super) async fn insert_activity_log(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
-    .bind(Uuid::new_v4())
-    .bind(gathering_id)
-    .bind(actor_id)
+    .bind(Uuid::new_v4().to_string())
+    .bind(gathering_id.to_string())
+    .bind(actor_id.map(|id| id.to_string()))
     .bind(action)
     .bind(target_type)
-    .bind(target_id)
+    .bind(target_id.map(|id| id.to_string()))
     .bind(detail)
     .bind(Utc::now())
     .execute(pool)
@@ -269,7 +280,7 @@ pub(super) async fn touch_participant_menu_activity(
     )
     .bind(Utc::now())
     .bind(Utc::now())
-    .bind(participant_id)
+    .bind(participant_id.to_string())
     .execute(pool)
     .await?;
 
@@ -339,4 +350,8 @@ fn slugify_title(title: &str) -> String {
     } else {
         slug
     }
+}
+
+pub(super) fn parse_uuid(value: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(value).map_err(|error| AppError::Validation(format!("invalid uuid: {error}")))
 }

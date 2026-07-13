@@ -29,7 +29,7 @@ pub async fn lock_gathering(
     .bind(now)
     .bind(now)
     .bind(now)
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .execute(pool)
     .await?;
 
@@ -49,7 +49,7 @@ pub async fn lock_gathering(
 
 pub async fn lock_expired_gatherings(pool: &DbPool, limit: i64) -> AppResult<Vec<Gathering>> {
     let now = Utc::now();
-    let candidates = sqlx::query_as::<_, (Uuid,)>(
+    let candidates = sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM gatherings
@@ -68,6 +68,7 @@ pub async fn lock_expired_gatherings(pool: &DbPool, limit: i64) -> AppResult<Vec
     let mut locked_gatherings = Vec::new();
 
     for (gathering_id,) in candidates {
+        let gathering_id = super::common::parse_uuid(&gathering_id)?;
         let result = sqlx::query(
             r#"
             UPDATE gatherings
@@ -82,7 +83,7 @@ pub async fn lock_expired_gatherings(pool: &DbPool, limit: i64) -> AppResult<Vec
         )
         .bind(now)
         .bind(now)
-        .bind(gathering_id)
+        .bind(gathering_id.to_string())
         .execute(pool)
         .await?;
 

@@ -5,8 +5,8 @@ use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
     models::{
-        AuthResponse, LoginRequest, Participant, RegisterRequest, UpdateAccountRequest,
-        UpdateMemberRequest, User,
+        AuthResponse, LoginRequest, Participant, ParticipantRow, RegisterRequest,
+        UpdateAccountRequest, UpdateMemberRequest, User, UserRow,
     },
 };
 
@@ -37,7 +37,7 @@ pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthRespon
         });
     }
 
-    let row: Option<(Uuid, String)> = sqlx::query_as(
+    let row: Option<(String, String)> = sqlx::query_as(
         r#"
         SELECT id, password_hash
         FROM users
@@ -51,6 +51,7 @@ pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthRespon
     let Some((user_id, password_hash)) = row else {
         return Err(AppError::Forbidden);
     };
+    let user_id = parse_uuid(&user_id)?;
 
     if password_hash != hash_password(&payload.password) {
         return Err(AppError::Forbidden);
@@ -86,7 +87,7 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
         VALUES (?, ?, ?, ?, 'user', ?, ?)
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_string())
     .bind(&username)
     .bind(display_name)
     .bind(hash_password(&generated_password))
@@ -174,7 +175,7 @@ pub async fn update_account(
     .bind(display_name)
     .bind(password_hash)
     .bind(now)
-    .bind(user.id)
+    .bind(user.id.to_string())
     .execute(pool)
     .await?;
 
@@ -187,7 +188,7 @@ pub async fn update_account(
     )
     .bind(display_name)
     .bind(now)
-    .bind(user.id)
+    .bind(user.id.to_string())
     .execute(pool)
     .await?;
 
@@ -197,7 +198,7 @@ pub async fn update_account(
 pub async fn list_members(pool: &DbPool, token: &str) -> AppResult<Vec<User>> {
     ensure_admin_token(pool, token).await?;
 
-    let users = sqlx::query_as::<_, User>(
+    let rows = sqlx::query_as::<_, UserRow>(
         r#"
         SELECT id, username, display_name, role, created_at, updated_at
         FROM users
@@ -210,7 +211,7 @@ pub async fn list_members(pool: &DbPool, token: &str) -> AppResult<Vec<User>> {
     .fetch_all(pool)
     .await?;
 
-    Ok(users)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn update_member(
@@ -252,7 +253,7 @@ pub async fn update_member(
     .bind(display_name)
     .bind(password_hash)
     .bind(now)
-    .bind(user_id)
+    .bind(user_id.to_string())
     .execute(pool)
     .await?;
 
@@ -265,7 +266,7 @@ pub async fn update_member(
     )
     .bind(display_name)
     .bind(now)
-    .bind(user_id)
+    .bind(user_id.to_string())
     .execute(pool)
     .await?;
 
@@ -278,7 +279,7 @@ pub async fn user_from_token(pool: &DbPool, token: &str) -> AppResult<User> {
         return Err(AppError::Forbidden);
     }
 
-    let session: Option<(Uuid, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+    let session: Option<(String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
         r#"
         SELECT user_id, expires_at
         FROM auth_sessions
@@ -292,6 +293,7 @@ pub async fn user_from_token(pool: &DbPool, token: &str) -> AppResult<User> {
     let Some((user_id, expires_at)) = session else {
         return Err(AppError::Unauthorized);
     };
+    let user_id = parse_uuid(&user_id)?;
 
     if expires_at.is_some_and(|value| value <= Utc::now()) {
         logout(pool, token).await?;
@@ -311,29 +313,29 @@ pub async fn ensure_participant_for_user(
         return Err(AppError::Forbidden);
     }
 
-    if let Some((participant_id,)) = sqlx::query_as::<_, (Uuid,)>(
+    if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM participants
         WHERE gathering_id = ? AND user_id = ?
         "#,
     )
-    .bind(gathering_id)
-    .bind(user_id)
+    .bind(gathering_id.to_string())
+    .bind(user_id.to_string())
     .fetch_optional(pool)
     .await?
     {
-        return get_participant_by_id(pool, participant_id).await;
+        return get_participant_by_id(pool, parse_uuid(&participant_id)?).await;
     }
 
-    if let Some((participant_id,)) = sqlx::query_as::<_, (Uuid,)>(
+    if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM participants
         WHERE gathering_id = ? AND display_name = ? AND user_id IS NULL
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .bind(&user.display_name)
     .fetch_optional(pool)
     .await?
@@ -345,13 +347,13 @@ pub async fn ensure_participant_for_user(
             WHERE id = ?
             "#,
         )
-        .bind(user_id)
+        .bind(user_id.to_string())
         .bind(Utc::now())
-        .bind(participant_id)
+        .bind(participant_id.to_string())
         .execute(pool)
         .await?;
 
-        return get_participant_by_id(pool, participant_id).await;
+        return get_participant_by_id(pool, parse_uuid(&participant_id)?).await;
     }
 
     let participant_id = Uuid::new_v4();
@@ -364,9 +366,9 @@ pub async fn ensure_participant_for_user(
         VALUES (?, ?, ?, ?, 'participant', ?, ?, ?, ?)
         "#,
     )
-    .bind(participant_id)
-    .bind(gathering_id)
-    .bind(user_id)
+    .bind(participant_id.to_string())
+    .bind(gathering_id.to_string())
+    .bind(user_id.to_string())
     .bind(&user.display_name)
     .bind(Uuid::new_v4().to_string())
     .bind(now)
@@ -383,10 +385,10 @@ pub async fn ensure_participant_for_user(
         VALUES (?, ?, ?, 'participant_joined', 'participant', ?, NULL, ?)
         "#,
     )
-    .bind(Uuid::new_v4())
-    .bind(gathering_id)
-    .bind(participant_id)
-    .bind(participant_id)
+    .bind(Uuid::new_v4().to_string())
+    .bind(gathering_id.to_string())
+    .bind(participant_id.to_string())
+    .bind(participant_id.to_string())
     .bind(now)
     .execute(pool)
     .await?;
@@ -399,21 +401,23 @@ pub async fn participant_for_user(
     gathering_id: Uuid,
     user_id: Uuid,
 ) -> AppResult<Option<Participant>> {
-    let participant_id = sqlx::query_as::<_, (Uuid,)>(
+    let participant_id = sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM participants
         WHERE gathering_id = ? AND user_id = ?
         "#,
     )
-    .bind(gathering_id)
-    .bind(user_id)
+    .bind(gathering_id.to_string())
+    .bind(user_id.to_string())
     .fetch_optional(pool)
     .await?
     .map(|(participant_id,)| participant_id);
 
     match participant_id {
-        Some(participant_id) => get_participant_by_id(pool, participant_id).await.map(Some),
+        Some(participant_id) => get_participant_by_id(pool, parse_uuid(&participant_id)?)
+            .await
+            .map(Some),
         None => Ok(None),
     }
 }
@@ -429,7 +433,7 @@ async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
         "#,
     )
     .bind(&token)
-    .bind(user_id)
+    .bind(user_id.to_string())
     .bind(now)
     .bind(expires_at)
     .execute(pool)
@@ -454,7 +458,7 @@ async fn gathering_id_by_invite_code(pool: &DbPool, invite_code: &str) -> AppRes
         return Err(AppError::Validation("invite_code is required".to_string()));
     }
 
-    sqlx::query_as::<_, (Uuid,)>(
+    sqlx::query_as::<_, (String,)>(
         r#"
         SELECT id
         FROM gatherings
@@ -464,7 +468,8 @@ async fn gathering_id_by_invite_code(pool: &DbPool, invite_code: &str) -> AppRes
     .bind(invite_code)
     .fetch_optional(pool)
     .await?
-    .map(|(gathering_id,)| gathering_id)
+    .map(|(gathering_id,)| parse_uuid(&gathering_id))
+    .transpose()?
     .ok_or(AppError::NotFound)
 }
 
@@ -487,7 +492,7 @@ async fn ensure_system_admin(pool: &DbPool) -> AppResult<Uuid> {
             updated_at = excluded.updated_at
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_string())
     .bind(SYSTEM_ADMIN_USERNAME)
     .bind(SYSTEM_ADMIN_USERNAME)
     .bind(hash_password(SYSTEM_ADMIN_PASSWORD))
@@ -500,21 +505,23 @@ async fn ensure_system_admin(pool: &DbPool) -> AppResult<Uuid> {
 }
 
 async fn get_user_by_id(pool: &DbPool, user_id: Uuid) -> AppResult<User> {
-    sqlx::query_as::<_, User>(
+    let row = sqlx::query_as::<_, UserRow>(
         r#"
         SELECT id, username, display_name, role, created_at, updated_at
         FROM users
         WHERE id = ?
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult<Participant> {
-    sqlx::query_as::<_, Participant>(
+    let row = sqlx::query_as::<_, ParticipantRow>(
         r#"
         SELECT id, gathering_id, user_id, display_name, role, last_menu_activity_at,
                joined_at, created_at, updated_at
@@ -522,10 +529,12 @@ async fn get_participant_by_id(pool: &DbPool, participant_id: Uuid) -> AppResult
         WHERE id = ?
         "#,
     )
-    .bind(participant_id)
+    .bind(participant_id.to_string())
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::NotFound)
+    .ok_or(AppError::NotFound)?;
+
+    row.try_into()
 }
 
 async fn unique_username(pool: &DbPool, display_name: &str) -> AppResult<String> {
@@ -591,4 +600,8 @@ fn hash_password(password: &str) -> String {
     }
 
     format!("{hash:016x}")
+}
+
+fn parse_uuid(value: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(value).map_err(|error| AppError::Validation(format!("invalid uuid: {error}")))
 }

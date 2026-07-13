@@ -3,12 +3,12 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
-    models::{CreateMenuItemRequest, MenuItem, UpdateMenuItemRequest},
+    models::{CreateMenuItemRequest, MenuItem, MenuItemRow, UpdateMenuItemRequest},
 };
 
 use super::common::{
     ensure_gathering_editable, ensure_participant_in_gathering, get_gathering_by_id,
-    get_menu_item_by_id, insert_activity_log, touch_participant_menu_activity,
+    get_menu_item_by_id, insert_activity_log, parse_uuid, touch_participant_menu_activity,
 };
 
 struct MenuItemChangeAfter {
@@ -25,7 +25,7 @@ struct MenuItemChangeAfter {
 pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<MenuItem>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
-    let items = sqlx::query_as::<_, MenuItem>(
+    let rows = sqlx::query_as::<_, MenuItemRow>(
         r#"
         SELECT id, gathering_id, created_by, updated_by, name, category, quantity,
                unit, owner_name, reference_url, note, status, revision, created_at, updated_at
@@ -34,11 +34,11 @@ pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec
         ORDER BY created_at ASC
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .fetch_all(pool)
     .await?;
 
-    Ok(items)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn create_menu_item(
@@ -68,9 +68,9 @@ pub async fn create_menu_item(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         "#,
     )
-    .bind(menu_item_id)
-    .bind(gathering_id)
-    .bind(payload.created_by)
+    .bind(menu_item_id.to_string())
+    .bind(gathering_id.to_string())
+    .bind(payload.created_by.to_string())
     .bind(payload.name.trim())
     .bind(payload.category.as_deref().map(str::trim))
     .bind(quantity)
@@ -105,8 +105,9 @@ pub async fn update_menu_item(
     payload: UpdateMenuItemRequest,
 ) -> AppResult<MenuItem> {
     let current = get_menu_item_by_id(pool, menu_item_id).await?;
-    ensure_gathering_editable(pool, current.gathering_id).await?;
-    ensure_participant_in_gathering(pool, current.gathering_id, payload.updated_by).await?;
+    let gathering_id = current.gathering_id;
+    ensure_gathering_editable(pool, gathering_id).await?;
+    ensure_participant_in_gathering(pool, gathering_id, payload.updated_by).await?;
 
     if payload
         .expected_revision
@@ -169,7 +170,7 @@ pub async fn update_menu_item(
         WHERE id = ?
         "#,
     )
-    .bind(payload.updated_by)
+    .bind(payload.updated_by.to_string())
     .bind(name.trim())
     .bind(category.as_deref())
     .bind(quantity)
@@ -179,13 +180,13 @@ pub async fn update_menu_item(
     .bind(note.as_deref())
     .bind(&status)
     .bind(now)
-    .bind(menu_item_id)
+    .bind(menu_item_id.to_string())
     .execute(pool)
     .await?;
 
     insert_menu_item_change_logs(
         pool,
-        current.gathering_id,
+        gathering_id,
         payload.updated_by,
         menu_item_id,
         before,
@@ -207,18 +208,19 @@ pub async fn update_menu_item(
 }
 
 pub async fn menu_item_gathering_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<Uuid> {
-    let row: Option<(Uuid,)> = sqlx::query_as(
+    let row: Option<(String,)> = sqlx::query_as(
         r#"
         SELECT gathering_id
         FROM menu_items
         WHERE id = ?
         "#,
     )
-    .bind(menu_item_id)
+    .bind(menu_item_id.to_string())
     .fetch_optional(pool)
     .await?;
 
-    row.map(|(gathering_id,)| gathering_id)
+    row.map(|(gathering_id,)| parse_uuid(&gathering_id))
+        .transpose()?
         .ok_or(AppError::NotFound)
 }
 

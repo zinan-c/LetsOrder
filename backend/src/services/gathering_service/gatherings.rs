@@ -5,8 +5,8 @@ use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
     models::{
-        CreateGatheringRequest, CreateGatheringResponse, Gathering, GatheringListItem, Participant,
-        UpdateGatheringRequest,
+        CreateGatheringRequest, CreateGatheringResponse, Gathering, GatheringListItem,
+        GatheringListItemRow, GatheringRow, Participant, ParticipantRow, UpdateGatheringRequest,
     },
 };
 
@@ -47,7 +47,7 @@ pub async fn create_gathering(
         VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?)
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .bind(payload.title.trim())
     .bind(payload.description.as_deref().map(str::trim))
     .bind(&invite_code)
@@ -66,8 +66,8 @@ pub async fn create_gathering(
         VALUES (?, ?, ?, 'host', ?, ?, ?, ?)
         "#,
     )
-    .bind(host_id)
-    .bind(gathering_id)
+    .bind(host_id.to_string())
+    .bind(gathering_id.to_string())
     .bind(payload.host_name.trim())
     .bind(&access_token)
     .bind(now)
@@ -101,7 +101,7 @@ pub async fn get_gathering_by_invite_code(
     pool: &DbPool,
     invite_code: &str,
 ) -> AppResult<Gathering> {
-    let gathering = sqlx::query_as::<_, Gathering>(
+    let row = sqlx::query_as::<_, GatheringRow>(
         r#"
         SELECT id, title, description, invite_code, status, starts_at, expires_at,
                is_locked, locked_at, archived_at, created_at, updated_at
@@ -114,11 +114,11 @@ pub async fn get_gathering_by_invite_code(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    sync_expired_gathering(pool, gathering).await
+    sync_expired_gathering(pool, row.try_into()?).await
 }
 
 pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>> {
-    let rows = sqlx::query_as::<_, GatheringListItem>(
+    let rows = sqlx::query_as::<_, GatheringListItemRow>(
         r#"
         SELECT
             g.id,
@@ -144,11 +144,11 @@ pub async fn list_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>>
     .fetch_all(pool)
     .await?;
 
-    Ok(rows)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn list_active_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringListItem>> {
-    let rows = sqlx::query_as::<_, GatheringListItem>(
+    let rows = sqlx::query_as::<_, GatheringListItemRow>(
         r#"
         SELECT
             g.id,
@@ -177,14 +177,14 @@ pub async fn list_active_gatherings(pool: &DbPool) -> AppResult<Vec<GatheringLis
     .fetch_all(pool)
     .await?;
 
-    Ok(rows)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn list_gatherings_for_user(
     pool: &DbPool,
     user_id: Uuid,
 ) -> AppResult<Vec<GatheringListItem>> {
-    let rows = sqlx::query_as::<_, GatheringListItem>(
+    let rows = sqlx::query_as::<_, GatheringListItemRow>(
         r#"
         SELECT
             g.id,
@@ -213,11 +213,11 @@ pub async fn list_gatherings_for_user(
         ORDER BY g.created_at DESC
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_string())
     .fetch_all(pool)
     .await?;
 
-    Ok(rows)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn archive_gathering(
@@ -240,7 +240,7 @@ pub async fn archive_gathering(
     )
     .bind(now)
     .bind(now)
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .execute(pool)
     .await?;
 
@@ -291,7 +291,7 @@ pub async fn update_gathering_deadline(
     .bind(should_lock)
     .bind(now)
     .bind(now)
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .execute(pool)
     .await?;
 
@@ -353,7 +353,7 @@ pub async fn update_gathering_deadline(
 pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Participant>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
-    let participants = sqlx::query_as::<_, Participant>(
+    let rows = sqlx::query_as::<_, ParticipantRow>(
         r#"
         SELECT p.id, p.gathering_id, p.user_id, p.display_name, p.role, p.last_menu_activity_at,
                p.joined_at, p.created_at, p.updated_at
@@ -365,9 +365,9 @@ pub async fn list_participants(pool: &DbPool, gathering_id: Uuid) -> AppResult<V
         ORDER BY COALESCE(last_menu_activity_at, joined_at) DESC
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .fetch_all(pool)
     .await?;
 
-    Ok(participants)
+    rows.into_iter().map(TryInto::try_into).collect()
 }

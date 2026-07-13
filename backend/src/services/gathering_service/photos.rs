@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
-    models::Photo,
+    models::{Photo, PhotoRow},
 };
 
 use super::common::{
@@ -19,7 +19,7 @@ use super::common::{
 pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Photo>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
-    let photos = sqlx::query_as::<_, Photo>(
+    let rows = sqlx::query_as::<_, PhotoRow>(
         r#"
         SELECT id, gathering_id, uploaded_by, file_url, thumbnail_url, caption,
                taken_at, created_at, updated_at
@@ -28,11 +28,11 @@ pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Pho
         ORDER BY created_at DESC
         "#,
     )
-    .bind(gathering_id)
+    .bind(gathering_id.to_string())
     .fetch_all(pool)
     .await?;
 
-    Ok(photos)
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 pub async fn upload_photo(
@@ -123,9 +123,9 @@ pub async fn upload_photo(
         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
         "#,
     )
-    .bind(photo_id)
-    .bind(gathering_id)
-    .bind(uploaded_by)
+    .bind(photo_id.to_string())
+    .bind(gathering_id.to_string())
+    .bind(uploaded_by.to_string())
     .bind(&file_url)
     .bind(caption)
     .bind(now)
@@ -168,7 +168,7 @@ pub async fn update_photo_caption(
     )
     .bind(caption)
     .bind(now)
-    .bind(photo_id)
+    .bind(photo_id.to_string())
     .execute(pool)
     .await?;
 
@@ -204,7 +204,7 @@ pub async fn delete_photo(
         WHERE id = ?
         "#,
     )
-    .bind(photo_id)
+    .bind(photo_id.to_string())
     .execute(pool)
     .await?;
 
