@@ -1,16 +1,20 @@
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::{db::DbPool, errors::AppResult, models::Gathering};
+use crate::{
+    db::DbPool,
+    errors::AppResult,
+    models::{Gathering, User},
+};
 
-use super::common::{ensure_actor_can_manage, get_gathering_by_id, insert_activity_log};
+use super::common::{ensure_user_can_manage, get_gathering_by_id, insert_activity_log};
 
 pub async fn lock_gathering(
     pool: &DbPool,
     gathering_id: Uuid,
-    actor_name: Option<String>,
+    actor: &User,
 ) -> AppResult<Gathering> {
-    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
+    ensure_user_can_manage(pool, gathering_id, actor).await?;
     get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();

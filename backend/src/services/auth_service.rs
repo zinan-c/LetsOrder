@@ -1,4 +1,5 @@
 use chrono::{Duration, Utc};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -15,6 +16,7 @@ const SYSTEM_ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
 const SYSTEM_ADMIN_USERNAME: &str = "suite-admin";
 const SYSTEM_ADMIN_PASSWORD: &str = "Admin_1234";
 const SESSION_TTL_HOURS: i64 = 48;
+const HASH_SCHEME_SHA256: &str = "sha256";
 
 pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthResponse> {
     let username = payload.username.trim();
@@ -24,7 +26,7 @@ pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthRespon
         ));
     }
 
-    if username == SYSTEM_ADMIN_USERNAME && payload.password == SYSTEM_ADMIN_PASSWORD {
+    if username == SYSTEM_ADMIN_USERNAME && payload.password == system_admin_password() {
         let user_id = ensure_system_admin(pool).await?;
         let token = create_session(pool, user_id).await?;
         let user = get_user_by_id(pool, user_id).await?;
@@ -53,7 +55,7 @@ pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthRespon
     };
     let user_id = parse_uuid(&user_id)?;
 
-    if password_hash != hash_password(&payload.password) {
+    if !verify_password(&payload.password, &password_hash) {
         return Err(AppError::Forbidden);
     }
 
@@ -73,9 +75,10 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     if display_name.is_empty() {
         return Err(AppError::Validation("display_name is required".to_string()));
     }
+    validate_display_name(display_name)?;
 
     let username = unique_username(pool, display_name).await?;
-    let generated_password = format!("{display_name}{}", random_three_digits());
+    let generated_password = random_password();
     let user_id = Uuid::new_v4();
     let now = Utc::now();
 
@@ -155,6 +158,7 @@ pub async fn update_account(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(user.display_name.as_str());
+    validate_display_name(display_name)?;
     let password_hash = payload
         .password
         .as_deref()
@@ -233,6 +237,7 @@ pub async fn update_member(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(target.display_name.as_str());
+    validate_display_name(display_name)?;
     let password_hash = payload
         .password
         .as_deref()
@@ -495,7 +500,7 @@ async fn ensure_system_admin(pool: &DbPool) -> AppResult<Uuid> {
     .bind(user_id.to_string())
     .bind(SYSTEM_ADMIN_USERNAME)
     .bind(SYSTEM_ADMIN_USERNAME)
-    .bind(hash_password(SYSTEM_ADMIN_PASSWORD))
+    .bind(hash_password(&system_admin_password()))
     .bind(now)
     .bind(now)
     .execute(pool)
@@ -576,21 +581,46 @@ fn slugify_username(display_name: &str) -> String {
     }
 
     if slug.is_empty() {
-        format!(
-            "user-{}",
-            Uuid::new_v4().simple().to_string()[..8].to_string()
-        )
+        format!("user-{}", &Uuid::new_v4().simple().to_string()[..8])
     } else {
         slug
     }
 }
 
-fn random_three_digits() -> String {
-    let value = (Uuid::new_v4().as_u128() % 900) + 100;
-    value.to_string()
+fn random_password() -> String {
+    Uuid::new_v4().simple().to_string()[..12].to_string()
 }
 
 fn hash_password(password: &str) -> String {
+    let salt = Uuid::new_v4().simple().to_string();
+    salted_sha256_password(password, &salt)
+}
+
+fn verify_password(password: &str, stored_hash: &str) -> bool {
+    if let Some((scheme, rest)) = stored_hash.split_once('$')
+        && scheme == HASH_SCHEME_SHA256
+    {
+        let Some((salt, _digest)) = rest.split_once('$') else {
+            return false;
+        };
+
+        return salted_sha256_password(password, salt) == stored_hash;
+    }
+
+    stored_hash == legacy_hash_password(password)
+}
+
+fn salted_sha256_password(password: &str, salt: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(salt.as_bytes());
+    hasher.update(b":");
+    hasher.update(password.as_bytes());
+    let digest = hasher.finalize();
+
+    format!("{HASH_SCHEME_SHA256}${salt}${}", encode_hex(&digest))
+}
+
+fn legacy_hash_password(password: &str) -> String {
     let input = format!("{PASSWORD_SALT}:{password}");
     let mut hash = 0xcbf29ce484222325u64;
 
@@ -600,6 +630,35 @@ fn hash_password(password: &str) -> String {
     }
 
     format!("{hash:016x}")
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+
+    output
+}
+
+fn system_admin_password() -> String {
+    std::env::var("LETSORDER_ADMIN_PASSWORD").unwrap_or_else(|_| SYSTEM_ADMIN_PASSWORD.to_string())
+}
+
+fn validate_display_name(display_name: &str) -> AppResult<()> {
+    if display_name
+        .trim()
+        .eq_ignore_ascii_case(SYSTEM_ADMIN_USERNAME)
+    {
+        return Err(AppError::Validation(
+            "这是系统管理员账号名称，请使用系统管理员账号及密码登陆".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn parse_uuid(value: &str) -> AppResult<Uuid> {

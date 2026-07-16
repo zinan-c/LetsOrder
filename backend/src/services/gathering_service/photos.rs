@@ -8,13 +8,15 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     errors::{AppError, AppResult},
-    models::{Photo, PhotoRow},
+    models::{Photo, PhotoRow, User},
 };
 
 use super::common::{
-    ensure_actor_is_admin, get_gathering_by_id, get_or_create_participant_by_name, get_photo_by_id,
+    ensure_participant_in_gathering, ensure_user_is_admin, get_gathering_by_id, get_photo_by_id,
     insert_activity_log, resource_dir,
 };
+
+const MAX_PHOTO_BYTES: usize = 8 * 1024 * 1024;
 
 pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Photo>> {
     get_gathering_by_id(pool, gathering_id).await?;
@@ -38,17 +40,11 @@ pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Pho
 pub async fn upload_photo(
     pool: &DbPool,
     gathering_id: Uuid,
-    actor_name: Option<String>,
+    uploaded_by: Uuid,
     mut multipart: Multipart,
 ) -> AppResult<Photo> {
     get_gathering_by_id(pool, gathering_id).await?;
-
-    let actor_name = actor_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or(AppError::Forbidden)?;
-    let uploaded_by = get_or_create_participant_by_name(pool, gathering_id, actor_name).await?;
+    ensure_participant_in_gathering(pool, gathering_id, uploaded_by).await?;
     let mut caption: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
@@ -83,13 +79,27 @@ pub async fn upload_photo(
     }
 
     let file_bytes = file_bytes.ok_or_else(|| AppError::Validation("file is required".into()))?;
-    let extension = file_name
+    if file_bytes.len() > MAX_PHOTO_BYTES {
+        return Err(AppError::Validation("photo is too large".to_string()));
+    }
+
+    let requested_extension = file_name
         .as_deref()
         .and_then(|name| Path::new(name).extension())
         .and_then(|extension| extension.to_str())
-        .map(str::to_lowercase)
-        .filter(|extension| matches!(extension.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif"))
-        .unwrap_or_else(|| "jpg".to_string());
+        .map(str::to_lowercase);
+    let detected_extension = detect_image_extension(&file_bytes)
+        .ok_or_else(|| AppError::Validation("unsupported or invalid image".to_string()))?;
+    let extension = match requested_extension.as_deref() {
+        Some("jpg" | "jpeg") if detected_extension == "jpg" => requested_extension.unwrap(),
+        Some(extension) if extension == detected_extension => extension.to_string(),
+        Some(_) => {
+            return Err(AppError::Validation(
+                "file extension does not match image content".to_string(),
+            ));
+        }
+        None => detected_extension.to_string(),
+    };
     let now = Utc::now();
     let photo_id = Uuid::new_v4();
     let stored_file_name = format!("{}.{}", photo_id.simple(), extension);
@@ -147,13 +157,33 @@ pub async fn upload_photo(
     get_photo_by_id(pool, photo_id).await
 }
 
+fn detect_image_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("png");
+    }
+
+    if bytes.starts_with(b"\xff\xd8\xff") && bytes.ends_with(b"\xff\xd9") {
+        return Some("jpg");
+    }
+
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("gif");
+    }
+
+    None
+}
+
 pub async fn update_photo_caption(
     pool: &DbPool,
     photo_id: Uuid,
     caption: String,
-    actor_name: Option<String>,
+    actor: &User,
 ) -> AppResult<Photo> {
-    ensure_actor_is_admin(actor_name.as_deref())?;
+    ensure_user_is_admin(actor)?;
     let current = get_photo_by_id(pool, photo_id).await?;
     let now = Utc::now();
     let caption = caption.trim();
@@ -190,12 +220,8 @@ pub async fn update_photo_caption(
     get_photo_by_id(pool, photo_id).await
 }
 
-pub async fn delete_photo(
-    pool: &DbPool,
-    photo_id: Uuid,
-    actor_name: Option<String>,
-) -> AppResult<Photo> {
-    ensure_actor_is_admin(actor_name.as_deref())?;
+pub async fn delete_photo(pool: &DbPool, photo_id: Uuid, actor: &User) -> AppResult<Photo> {
+    ensure_user_is_admin(actor)?;
     let photo = get_photo_by_id(pool, photo_id).await?;
 
     sqlx::query(

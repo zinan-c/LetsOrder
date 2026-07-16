@@ -8,7 +8,7 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         Gathering, GatheringRow, MenuItem, MenuItemRow, Participant, ParticipantRow, Photo,
-        PhotoRow,
+        PhotoRow, User,
     },
 };
 
@@ -66,62 +66,6 @@ pub(super) async fn get_participant_by_id(
     row.try_into()
 }
 
-pub(super) async fn get_or_create_participant_by_name(
-    pool: &DbPool,
-    gathering_id: Uuid,
-    display_name: &str,
-) -> AppResult<Uuid> {
-    if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
-        r#"
-        SELECT id
-        FROM participants
-        WHERE gathering_id = ? AND display_name = ?
-        "#,
-    )
-    .bind(gathering_id.to_string())
-    .bind(display_name)
-    .fetch_optional(pool)
-    .await?
-    {
-        return parse_uuid(&participant_id);
-    }
-
-    let now = Utc::now();
-    let participant_id = Uuid::new_v4();
-    let access_token = Uuid::new_v4().to_string();
-
-    sqlx::query(
-        r#"
-        INSERT INTO participants (
-            id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
-        )
-        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
-        "#,
-    )
-    .bind(participant_id.to_string())
-    .bind(gathering_id.to_string())
-    .bind(display_name)
-    .bind(&access_token)
-    .bind(now)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    insert_activity_log(
-        pool,
-        gathering_id,
-        Some(participant_id),
-        "participant_joined",
-        "participant",
-        Some(participant_id),
-        None,
-    )
-    .await?;
-
-    Ok(participant_id)
-}
-
 pub(super) async fn get_menu_item_by_id(pool: &DbPool, menu_item_id: Uuid) -> AppResult<MenuItem> {
     let row = sqlx::query_as::<_, MenuItemRow>(
         r#"
@@ -174,14 +118,12 @@ pub(super) async fn ensure_gathering_editable(pool: &DbPool, gathering_id: Uuid)
     Ok(())
 }
 
-pub(super) async fn ensure_actor_can_manage(
+pub(super) async fn ensure_user_can_manage(
     pool: &DbPool,
     gathering_id: Uuid,
-    actor_name: Option<&str>,
+    user: &User,
 ) -> AppResult<()> {
-    let actor_name = actor_name.ok_or(AppError::Forbidden)?;
-
-    if actor_name == "suite-admin" {
+    if user.role == "admin" {
         return Ok(());
     }
 
@@ -189,11 +131,11 @@ pub(super) async fn ensure_actor_can_manage(
         r#"
         SELECT role
         FROM participants
-        WHERE gathering_id = ? AND display_name = ?
+        WHERE gathering_id = ? AND user_id = ?
         "#,
     )
     .bind(gathering_id.to_string())
-    .bind(actor_name)
+    .bind(user.id.to_string())
     .fetch_optional(pool)
     .await?;
 
@@ -203,10 +145,11 @@ pub(super) async fn ensure_actor_can_manage(
     }
 }
 
-pub(super) fn ensure_actor_is_admin(actor_name: Option<&str>) -> AppResult<()> {
-    match actor_name {
-        Some("suite-admin") => Ok(()),
-        _ => Err(AppError::Forbidden),
+pub(super) fn ensure_user_is_admin(user: &User) -> AppResult<()> {
+    if user.role == "admin" {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden)
     }
 }
 
@@ -324,7 +267,7 @@ pub(super) async fn unique_invite_code(pool: &DbPool, title: &str) -> AppResult<
 }
 
 fn slugify_title(title: &str) -> String {
-    if title.chars().any(|character| !character.is_ascii()) {
+    if !title.is_ascii() {
         return Uuid::new_v4().simple().to_string()[..8].to_string();
     }
 

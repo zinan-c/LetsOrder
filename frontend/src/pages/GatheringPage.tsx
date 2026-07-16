@@ -19,11 +19,11 @@ import DishEditorModal from '../components/DishEditorModal';
 import GatheringSummary from '../components/GatheringSummary';
 import JoinMenuModal from '../components/JoinMenuModal';
 import MenuFilters from '../components/MenuFilters';
-import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
 import type { DishRecommendation, MenuItem, MenuItemStatus } from '../types/menu';
 import {
   getCookieUser,
+  getCurrentUser,
   setCookieUser,
   USER_CHANGED_EVENT,
 } from '../utils/user';
@@ -45,33 +45,6 @@ function normalizeReferenceUrl(value: FormDataEntryValue | null) {
     .find((part) => part.startsWith('http://') || part.startsWith('https://'));
 
   return url ?? text;
-}
-
-function createLocalMenuItem(
-  formData: FormData,
-  inviteCode?: string,
-  editingItem?: MenuItem | null,
-): MenuItem {
-  const now = new Date().toISOString();
-  const quantity = Number(formData.get('quantity') || 1);
-
-  return {
-    id: editingItem?.id ?? `local-${crypto.randomUUID()}`,
-    gathering_id: editingItem?.gathering_id ?? `local-${inviteCode ?? 'gathering'}`,
-    created_by: editingItem?.created_by ?? 'local-participant',
-    updated_by: editingItem ? 'local-participant' : null,
-    name: String(formData.get('name') ?? '').trim(),
-    category: String(formData.get('category') ?? '').trim() || null,
-    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-    unit: String(formData.get('unit') ?? '').trim() || null,
-    owner_name: String(formData.get('owner_name') ?? '').trim() || null,
-    reference_url: normalizeReferenceUrl(formData.get('reference_url')) || null,
-    note: String(formData.get('note') ?? '').trim() || null,
-    status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
-    revision: (editingItem?.revision ?? 0) + 1,
-    created_at: editingItem?.created_at ?? now,
-    updated_at: now,
-  };
 }
 
 function buildUpdatePayload(
@@ -104,7 +77,7 @@ export default function GatheringPage() {
   const [selectedChef, setSelectedChef] = useState(() => getCookieUser());
   const [chefRecommendations, setChefRecommendations] = useState<DishRecommendation[]>([]);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [currentGathering, setCurrentGathering] = useState<Gathering | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [gatheringId, setGatheringId] = useState<string | null>(null);
@@ -118,6 +91,7 @@ export default function GatheringPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [conflict, setConflict] = useState<MenuItemConflict | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | MenuItemStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const categoryFilterOptions = useMemo(
@@ -154,7 +128,6 @@ export default function GatheringPage() {
 
     return 0;
   });
-  const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
   const isReviewReturn =
     new URLSearchParams(location.search).get('from') === 'review';
@@ -198,6 +171,7 @@ export default function GatheringPage() {
 
         setCurrentGathering(gathering);
         setGatheringId(gathering.id);
+        setLoadError(null);
         if (joinResponse.participant) {
           setParticipantId(joinResponse.participant.id);
           localStorage.setItem(
@@ -234,7 +208,8 @@ export default function GatheringPage() {
           setGatheringId(null);
           setCurrentGathering(null);
           setParticipants([]);
-          setMenuItems(mockMenuItems);
+          setMenuItems([]);
+          setLoadError('Could not load this menu. Please check your access or try again.');
         }
       }
     }
@@ -406,47 +381,39 @@ export default function GatheringPage() {
     setSaveError(null);
 
     try {
-      if (canUseApi && gatheringId && participantId) {
-        if (editingItem) {
-          const pendingPayload = buildUpdatePayload(
-            formData,
-            participantId,
-            currentUser,
-            editingItem.revision,
-          );
-          const response = await updateMenuItem(editingItem.id, pendingPayload);
+      if (!canUseApi || !gatheringId || !participantId) {
+        throw new Error('You need to join this menu before editing dishes.');
+      }
 
-          setMenuItems((items) =>
-            items.map((item) =>
-              item.id === response.menu_item.id ? response.menu_item : item,
-            ),
-          );
-        } else {
-          const response = await createMenuItem(gatheringId, {
-            created_by: participantId,
-            name,
-            category: String(formData.get('category') ?? '').trim(),
-            quantity: Number(formData.get('quantity') || 1),
-            unit: String(formData.get('unit') ?? '').trim(),
-            owner_name:
-              String(formData.get('owner_name') ?? '').trim() || currentUser,
-            reference_url: normalizeReferenceUrl(formData.get('reference_url')),
-            note: String(formData.get('note') ?? '').trim(),
-            status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
-          });
+      if (editingItem) {
+        const pendingPayload = buildUpdatePayload(
+          formData,
+          participantId,
+          currentUser,
+          editingItem.revision,
+        );
+        const response = await updateMenuItem(editingItem.id, pendingPayload);
 
-          setMenuItems((items) => [...items, response.menu_item]);
-        }
+        setMenuItems((items) =>
+          items.map((item) =>
+            item.id === response.menu_item.id ? response.menu_item : item,
+          ),
+        );
       } else {
-        const localItem = createLocalMenuItem(formData, inviteCode, editingItem);
+        const response = await createMenuItem(gatheringId, {
+          created_by: participantId,
+          name,
+          category: String(formData.get('category') ?? '').trim(),
+          quantity: Number(formData.get('quantity') || 1),
+          unit: String(formData.get('unit') ?? '').trim(),
+          owner_name:
+            String(formData.get('owner_name') ?? '').trim() || currentUser,
+          reference_url: normalizeReferenceUrl(formData.get('reference_url')),
+          note: String(formData.get('note') ?? '').trim(),
+          status: String(formData.get('status') ?? 'planned') as MenuItemStatus,
+        });
 
-        if (editingItem) {
-          setMenuItems((items) =>
-            items.map((item) => (item.id === editingItem.id ? localItem : item)),
-          );
-        } else {
-          setMenuItems((items) => [...items, localItem]);
-        }
+        setMenuItems((items) => [...items, response.menu_item]);
       }
 
       closeEditor();
@@ -519,14 +486,15 @@ export default function GatheringPage() {
     }
   }
 
-  const currentTitle = currentGathering?.title ?? mockGathering.title;
-  const currentDescription =
-    currentGathering?.description ?? mockGathering.description;
-  const currentExpiresAt = currentGathering?.expires_at ?? mockGathering.expiresAt;
+  const currentTitle = currentGathering?.title ?? 'Menu unavailable';
+  const currentDescription = currentGathering?.description ?? '';
+  const currentExpiresAt = currentGathering?.expires_at ?? new Date().toISOString();
   const currentInviteCode =
-    currentGathering?.invite_code ?? inviteCode ?? mockGathering.inviteCode;
+    currentGathering?.invite_code ?? inviteCode ?? 'unknown';
   const isCurrentMenuLocked = currentGathering?.is_locked ?? false;
-  const needsDisplayName = Boolean(currentGathering && !participantId);
+  const isAdmin = getCurrentUser()?.role === 'admin';
+  const needsDisplayName = Boolean(currentGathering && !participantId && !isAdmin);
+  const canEditMenu = Boolean(participantId) && !isCurrentMenuLocked;
 
   return (
     <div className="menu-workspace">
@@ -542,7 +510,7 @@ export default function GatheringPage() {
           </div>
           {!needsDisplayName ? (
             <button
-              disabled={isCurrentMenuLocked}
+              disabled={!canEditMenu}
               type="button"
               onClick={openAddDish}
             >
@@ -550,6 +518,8 @@ export default function GatheringPage() {
             </button>
           ) : null}
         </div>
+
+        {loadError ? <p className="error">{loadError}</p> : null}
 
         {!needsDisplayName ? (
           <>
@@ -559,9 +529,7 @@ export default function GatheringPage() {
               inviteCode={currentInviteCode}
               expiresAt={currentExpiresAt}
               isLocked={isCurrentMenuLocked}
-              participantCount={
-                currentGathering ? undefined : mockGathering.participantCount
-              }
+              participantCount={undefined}
             />
 
             <MenuFilters
@@ -579,7 +547,7 @@ export default function GatheringPage() {
                 <DishCard
                   item={item}
                   key={item.id}
-                  readOnly={isCurrentMenuLocked}
+                  readOnly={!canEditMenu}
                   onEdit={openEditDish}
                 />
               ))}

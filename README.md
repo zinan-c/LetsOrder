@@ -79,7 +79,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Open invitation URL.
 - Log in with username and password.
 - First-time users can create an account from the login dialog.
-- Generated first-use passwords use the entered name plus three random digits.
+- First-use passwords are generated as random temporary passwords.
 - Join the gathering as a participant bound to the logged-in account.
 - Use `/join` as a fixed manual entry page for choosing an active gathering before entering its menu workspace.
 - Use invite-code joining before loading a gathering menu so gathering data stays participant/admin protected.
@@ -108,7 +108,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 
 ### Admin and Host Tools
 
-- Fixed system admin account: `suite-admin` / `Admin_1234`.
+- System admin username: `suite-admin`; configure the password with `LETSORDER_ADMIN_PASSWORD` for deployments.
 - View participants.
 - Edit gathering metadata.
 - Extend or shorten the menu expiration time.

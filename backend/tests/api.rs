@@ -149,7 +149,8 @@ async fn register_user(app: &Router, display_name: &str, gathering_id: &str) -> 
         body["generated_password"]
             .as_str()
             .expect("generated password should exist")
-            .starts_with(display_name)
+            .len()
+            >= 12
     );
     body
 }
@@ -319,6 +320,24 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     let (forbidden_members_status, _) =
         request_empty(&app, Method::GET, "/api/auth/members", Some(user_token)).await;
     assert_eq!(forbidden_members_status, StatusCode::FORBIDDEN);
+
+    let (reserved_name_status, reserved_name_body) = request_json(
+        &app,
+        Method::PATCH,
+        "/api/auth/account",
+        Some(user_token),
+        json!({
+            "display_name": "suite-admin"
+        }),
+    )
+    .await;
+    assert_eq!(reserved_name_status, StatusCode::BAD_REQUEST);
+    assert!(
+        reserved_name_body["error"]
+            .as_str()
+            .expect("reserved name error should exist")
+            .contains("系统管理员账号名称")
+    );
 
     let (members_status, members_body) =
         request_empty(&app, Method::GET, "/api/auth/members", Some(&admin_token)).await;
@@ -535,14 +554,21 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     assert_eq!(second_rate_status, StatusCode::OK);
     assert_eq!(second_rate_body["rating"]["average_rating"], 3.0);
 
-    let (forbidden_recommendation_status, _) = request_empty(
+    let (empty_recommendation_status, empty_recommendation_body) = request_empty(
         &app,
         Method::GET,
         "/api/chefs/Test%20Host/dish-recommendations",
         Some(user_token),
     )
     .await;
-    assert_eq!(forbidden_recommendation_status, StatusCode::FORBIDDEN);
+    assert_eq!(empty_recommendation_status, StatusCode::OK);
+    assert_eq!(
+        empty_recommendation_body["recommendations"]
+            .as_array()
+            .expect("recommendations should be an array")
+            .len(),
+        0
+    );
 
     let (recommendation_status, recommendation_body) = request_empty(
         &app,
@@ -602,13 +628,39 @@ async fn photo_admin_controls_and_token_lifecycle_flow() {
     let user_token = user_response["token"].as_str().expect("user token");
 
     let boundary = "letsorder-test-boundary";
-    let multipart_body = format!(
+    let invalid_multipart_body = format!(
         "--{boundary}\r\n\
-Content-Disposition: form-data; name=\"file\"; filename=\"memory.png\"\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"fake.png\"\r\n\
 Content-Type: image/png\r\n\r\n\
 fake-image-bytes\r\n\
 --{boundary}--\r\n"
     );
+    let invalid_upload_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/gatherings/{gathering_id}/photos"))
+                .header(header::AUTHORIZATION, format!("Bearer {user_token}"))
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(invalid_multipart_body))
+                .expect("invalid upload request should build"),
+        )
+        .await
+        .expect("invalid upload request should complete");
+    assert_eq!(invalid_upload_response.status(), StatusCode::BAD_REQUEST);
+
+    let mut multipart_body = format!(
+        "--{boundary}\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"memory.png\"\r\n\
+Content-Type: image/png\r\n\r\n"
+    )
+    .into_bytes();
+    multipart_body.extend_from_slice(b"\x89PNG\r\n\x1a\nvalid-test-png");
+    multipart_body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     let upload_response = app
         .clone()
         .oneshot(

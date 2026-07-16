@@ -22,6 +22,13 @@ struct MenuItemChangeAfter {
     status: String,
 }
 
+struct FieldChangeLog {
+    action: &'static str,
+    field: &'static str,
+    before: serde_json::Value,
+    after: serde_json::Value,
+}
+
 pub async fn list_menu_items(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<MenuItem>> {
     get_gathering_by_id(pool, gathering_id).await?;
 
@@ -109,10 +116,11 @@ pub async fn update_menu_item(
     ensure_gathering_editable(pool, gathering_id).await?;
     ensure_participant_in_gathering(pool, gathering_id, payload.updated_by).await?;
 
-    if payload
+    let expected_revision = payload
         .expected_revision
-        .is_some_and(|expected_revision| expected_revision != current.revision)
-    {
+        .ok_or_else(|| AppError::Validation("expected_revision is required".to_string()))?;
+
+    if expected_revision != current.revision {
         return Err(AppError::Conflict(serde_json::json!({
             "error": "menu item was updated by someone else",
             "latest_menu_item": current,
@@ -120,6 +128,7 @@ pub async fn update_menu_item(
         })));
     }
 
+    let submitted_payload = payload.clone();
     let before = current.clone();
 
     let name = payload.name.unwrap_or_else(|| current.name.clone());
@@ -153,7 +162,7 @@ pub async fn update_menu_item(
 
     let now = chrono::Utc::now();
 
-    sqlx::query(
+    let update_result = sqlx::query(
         r#"
         UPDATE menu_items
         SET updated_by = ?,
@@ -168,6 +177,7 @@ pub async fn update_menu_item(
             revision = revision + 1,
             updated_at = ?
         WHERE id = ?
+          AND revision = ?
         "#,
     )
     .bind(payload.updated_by.to_string())
@@ -181,8 +191,19 @@ pub async fn update_menu_item(
     .bind(&status)
     .bind(now)
     .bind(menu_item_id.to_string())
+    .bind(expected_revision)
     .execute(pool)
     .await?;
+
+    if update_result.rows_affected() == 0 {
+        let latest = get_menu_item_by_id(pool, menu_item_id).await?;
+
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "menu item was updated by someone else",
+            "latest_menu_item": latest,
+            "submitted": submitted_payload
+        })));
+    }
 
     insert_menu_item_change_logs(
         pool,
@@ -238,10 +259,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_name_changed",
-            "name",
-            serde_json::json!(before.name),
-            serde_json::json!(after.name),
+            FieldChangeLog {
+                action: "menu_item_name_changed",
+                field: "name",
+                before: serde_json::json!(before.name),
+                after: serde_json::json!(after.name),
+            },
         )
         .await?;
     }
@@ -252,10 +275,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_category_changed",
-            "category",
-            serde_json::json!(before.category),
-            serde_json::json!(after.category),
+            FieldChangeLog {
+                action: "menu_item_category_changed",
+                field: "category",
+                before: serde_json::json!(before.category),
+                after: serde_json::json!(after.category),
+            },
         )
         .await?;
     }
@@ -266,10 +291,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_quantity_changed",
-            "quantity",
-            serde_json::json!(before.quantity),
-            serde_json::json!(after.quantity),
+            FieldChangeLog {
+                action: "menu_item_quantity_changed",
+                field: "quantity",
+                before: serde_json::json!(before.quantity),
+                after: serde_json::json!(after.quantity),
+            },
         )
         .await?;
     }
@@ -280,10 +307,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_unit_changed",
-            "unit",
-            serde_json::json!(before.unit),
-            serde_json::json!(after.unit),
+            FieldChangeLog {
+                action: "menu_item_unit_changed",
+                field: "unit",
+                before: serde_json::json!(before.unit),
+                after: serde_json::json!(after.unit),
+            },
         )
         .await?;
     }
@@ -294,10 +323,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_owner_changed",
-            "owner_name",
-            serde_json::json!(before.owner_name),
-            serde_json::json!(after.owner_name),
+            FieldChangeLog {
+                action: "menu_item_owner_changed",
+                field: "owner_name",
+                before: serde_json::json!(before.owner_name),
+                after: serde_json::json!(after.owner_name),
+            },
         )
         .await?;
     }
@@ -308,10 +339,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_reference_url_changed",
-            "reference_url",
-            serde_json::json!(before.reference_url),
-            serde_json::json!(after.reference_url),
+            FieldChangeLog {
+                action: "menu_item_reference_url_changed",
+                field: "reference_url",
+                before: serde_json::json!(before.reference_url),
+                after: serde_json::json!(after.reference_url),
+            },
         )
         .await?;
     }
@@ -322,10 +355,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            "menu_item_note_changed",
-            "note",
-            serde_json::json!(before.note),
-            serde_json::json!(after.note),
+            FieldChangeLog {
+                action: "menu_item_note_changed",
+                field: "note",
+                before: serde_json::json!(before.note),
+                after: serde_json::json!(after.note),
+            },
         )
         .await?;
     }
@@ -342,10 +377,12 @@ async fn insert_menu_item_change_logs(
             gathering_id,
             actor_id,
             menu_item_id,
-            action,
-            "status",
-            serde_json::json!(before.status),
-            serde_json::json!(after.status),
+            FieldChangeLog {
+                action,
+                field: "status",
+                before: serde_json::json!(before.status),
+                after: serde_json::json!(after.status),
+            },
         )
         .await?;
     }
@@ -358,23 +395,20 @@ async fn insert_field_change_log(
     gathering_id: Uuid,
     actor_id: Uuid,
     menu_item_id: Uuid,
-    action: &str,
-    field: &str,
-    before: serde_json::Value,
-    after: serde_json::Value,
+    change: FieldChangeLog,
 ) -> AppResult<()> {
     insert_activity_log(
         pool,
         gathering_id,
         Some(actor_id),
-        action,
+        change.action,
         "menu_item",
         Some(menu_item_id),
         Some(
             serde_json::json!({
-                "field": field,
-                "before": before,
-                "after": after,
+                "field": change.field,
+                "before": change.before,
+                "after": change.after,
             })
             .to_string(),
         ),

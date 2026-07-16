@@ -7,11 +7,12 @@ use crate::{
     models::{
         CreateGatheringRequest, CreateGatheringResponse, Gathering, GatheringListItem,
         GatheringListItemRow, GatheringRow, Participant, ParticipantRow, UpdateGatheringRequest,
+        User,
     },
 };
 
 use super::common::{
-    ensure_actor_can_manage, get_gathering_by_id, get_participant_by_id, insert_activity_log,
+    ensure_user_can_manage, get_gathering_by_id, get_participant_by_id, insert_activity_log,
     sync_expired_gathering, unique_invite_code,
 };
 
@@ -223,9 +224,9 @@ pub async fn list_gatherings_for_user(
 pub async fn archive_gathering(
     pool: &DbPool,
     gathering_id: Uuid,
-    actor_name: Option<String>,
+    actor: &User,
 ) -> AppResult<Gathering> {
-    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
+    ensure_user_can_manage(pool, gathering_id, actor).await?;
 
     let now = Utc::now();
 
@@ -266,9 +267,9 @@ pub async fn update_gathering_deadline(
     pool: &DbPool,
     gathering_id: Uuid,
     payload: UpdateGatheringRequest,
-    actor_name: Option<String>,
+    actor: &User,
 ) -> AppResult<Gathering> {
-    ensure_actor_can_manage(pool, gathering_id, actor_name.as_deref()).await?;
+    ensure_user_can_manage(pool, gathering_id, actor).await?;
     let current = get_gathering_by_id(pool, gathering_id).await?;
 
     let now = Utc::now();

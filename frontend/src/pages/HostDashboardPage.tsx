@@ -13,7 +13,7 @@ import StatusPill from '../components/StatusPill';
 import type { ActivityLog, Participant } from '../types/gathering';
 import { copyText } from '../utils/clipboard';
 import { formatDateTime, toDateTimeLocalValue } from '../utils/dateTime';
-import { getCookieUser, getCurrentUser, USER_CHANGED_EVENT } from '../utils/user';
+import { getCurrentUser, USER_CHANGED_EVENT } from '../utils/user';
 
 type ActivityDetail = {
   field?: string;
@@ -187,12 +187,12 @@ export default function HostDashboardPage() {
   const [showAllParticipants, setShowAllParticipants] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [deadline, setDeadline] = useState('');
-  const [currentUser, setCurrentUser] = useState(() => getCookieUser());
+  const [authVersion, setAuthVersion] = useState(0);
   const [buttonFeedback, setButtonFeedback] = useState<
     'copy' | 'deadline' | 'lock' | null
   >(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
-  const isAdmin = getCurrentUser()?.role === 'admin';
+  const isAdmin = authVersion >= 0 && getCurrentUser()?.role === 'admin';
 
   function showButtonFeedback(feedback: 'copy' | 'deadline' | 'lock') {
     setButtonFeedback(feedback);
@@ -260,9 +260,8 @@ export default function HostDashboardPage() {
   }, [gathering?.expires_at]);
 
   useEffect(() => {
-    function handleUserChanged(event: Event) {
-      const user = event instanceof CustomEvent ? event.detail : null;
-      setCurrentUser(user?.display_name ?? '');
+    function handleUserChanged() {
+      setAuthVersion((value) => value + 1);
     }
 
     window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);

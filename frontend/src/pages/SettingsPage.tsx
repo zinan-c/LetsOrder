@@ -67,7 +67,9 @@ function MemberEditor({ member }: MemberEditorProps) {
         </label>
       </div>
       {isSystemAdmin ? (
-        <p className="empty-panel-note">System admin uses the fixed password.</p>
+        <p className="empty-panel-note">
+          System admin credentials are managed by server configuration.
+        </p>
       ) : null}
       {mutation.isError ? <p className="error">Could not update this member.</p> : null}
       {saved ? <p className="empty-panel-note">Member updated.</p> : null}
@@ -181,7 +183,7 @@ export default function SettingsPage() {
             </label>
             {isSystemAdmin ? (
               <p className="empty-panel-note">
-                System admin uses the fixed password `Admin_1234`.
+                System admin credentials are managed by server configuration.
               </p>
             ) : null}
             {mutation.isError ? (

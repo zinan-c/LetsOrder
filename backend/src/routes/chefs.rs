@@ -30,10 +30,7 @@ async fn list_dish_recommendations(
     Query(query): Query<DishRecommendationQuery>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let user = require_user(&state, &headers).await?;
-    if user.role != "admin" && user.display_name != chef_name {
-        return Err(AppError::Forbidden);
-    }
+    require_user(&state, &headers).await?;
 
     let recommendations =
         gathering_service::list_dish_recommendations(&state.pool, &chef_name, query.limit).await?;

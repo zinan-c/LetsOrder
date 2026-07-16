@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   deleteGathering,
   listGatherings,
@@ -13,32 +13,13 @@ import {
 } from '../api/gatherings';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
-import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { GatheringListItem } from '../types/gathering';
 import { getCurrentUser, syncUserFromQuery, USER_CHANGED_EVENT } from '../utils/user';
 
-const fallbackMenus: GatheringListItem[] = [
-  {
-    id: 'mock-menu',
-    title: 'mockdata',
-    description: mockGathering.description,
-    invite_code: mockGathering.inviteCode,
-    status: 'active',
-    is_locked: false,
-    expires_at: mockGathering.expiresAt,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    item_count: mockMenuItems.length,
-    prepared_count: mockMenuItems.filter((item) => item.status === 'prepared').length,
-    participant_count: mockGathering.participantCount,
-  },
-];
-
 export default function MenusPage() {
   const queryClient = useQueryClient();
-  const location = useLocation();
   const navigate = useNavigate();
-  const initialUser = useMemo(() => syncUserFromQuery(), [location.search]);
+  const initialUser = syncUserFromQuery();
   const [currentUser, setCurrentUser] = useState(initialUser);
   const isAdmin = getCurrentUser()?.role === 'admin';
   const [menuToDelete, setMenuToDelete] = useState<GatheringListItem | null>(
@@ -68,7 +49,7 @@ export default function MenusPage() {
     }),
   );
   const menus = isAdmin
-    ? [...realMenus, ...fallbackMenus]
+    ? realMenus
     : realMenus.filter((menu) => participatedMenuIds.has(menu.id));
   const isFilteringMenus =
     !isAdmin &&
@@ -130,7 +111,7 @@ export default function MenusPage() {
               <div className="menu-list-actions">
                 <button
                   className="danger-button"
-                  disabled={menu.id === 'mock-menu'}
+                  disabled={deleteMutation.isPending}
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();

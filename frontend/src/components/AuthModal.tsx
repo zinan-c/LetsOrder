@@ -47,7 +47,7 @@ export default function AuthModal({
           <div>
             <p className="card-kicker">Account ready</p>
             <h2 id="generated-password-title">Save your login</h2>
-            <p>Your password is generated from your name plus three random digits.</p>
+            <p>Your temporary password was generated for this account.</p>
           </div>
           <div className="result-panel">
             <strong>Username: {username}</strong>

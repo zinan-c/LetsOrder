@@ -96,12 +96,8 @@ async fn delete_gathering(
     Path(gathering_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering = gathering_service::archive_gathering(
-        &state.pool,
-        gathering_id,
-        actor_name(&state, &headers).await,
-    )
-    .await?;
+    let user = require_user(&state, &headers).await?;
+    let gathering = gathering_service::archive_gathering(&state.pool, gathering_id, &user).await?;
     notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
@@ -112,13 +108,10 @@ async fn update_gathering(
     headers: HeaderMap,
     Json(payload): Json<UpdateGatheringRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering = gathering_service::update_gathering_deadline(
-        &state.pool,
-        gathering_id,
-        payload,
-        actor_name(&state, &headers).await,
-    )
-    .await?;
+    let user = require_user(&state, &headers).await?;
+    let gathering =
+        gathering_service::update_gathering_deadline(&state.pool, gathering_id, payload, &user)
+            .await?;
     notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
@@ -128,12 +121,8 @@ async fn lock_gathering(
     Path(gathering_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let gathering = gathering_service::lock_gathering(
-        &state.pool,
-        gathering_id,
-        actor_name(&state, &headers).await,
-    )
-    .await?;
+    let user = require_user(&state, &headers).await?;
+    let gathering = gathering_service::lock_gathering(&state.pool, gathering_id, &user).await?;
     notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
 }
@@ -243,14 +232,12 @@ async fn upload_photo(
     headers: HeaderMap,
     multipart: Multipart,
 ) -> AppResult<Json<serde_json::Value>> {
-    require_gathering_access(&state, &headers, gathering_id).await?;
-    let photo = gathering_service::upload_photo(
-        &state.pool,
-        gathering_id,
-        actor_name(&state, &headers).await,
-        multipart,
-    )
-    .await?;
+    let participant = require_gathering_access(&state, &headers, gathering_id)
+        .await?
+        .ok_or(AppError::Forbidden)?;
+    let photo =
+        gathering_service::upload_photo(&state.pool, gathering_id, participant.id, multipart)
+            .await?;
     notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
@@ -329,13 +316,10 @@ async fn update_photo(
     headers: HeaderMap,
     Json(payload): Json<UpdatePhotoRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let photo = gathering_service::update_photo_caption(
-        &state.pool,
-        photo_id,
-        payload.caption,
-        actor_name(&state, &headers).await,
-    )
-    .await?;
+    let user = require_user(&state, &headers).await?;
+    let photo =
+        gathering_service::update_photo_caption(&state.pool, photo_id, payload.caption, &user)
+            .await?;
     notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
@@ -345,9 +329,8 @@ async fn delete_photo(
     Path(photo_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    let photo =
-        gathering_service::delete_photo(&state.pool, photo_id, actor_name(&state, &headers).await)
-            .await?;
+    let user = require_user(&state, &headers).await?;
+    let photo = gathering_service::delete_photo(&state.pool, photo_id, &user).await?;
     notify_refresh(&state, Some(photo.gathering_id));
     Ok(Json(serde_json::json!({ "photo": photo })))
 }
@@ -386,26 +369,6 @@ async fn require_user(state: &AppState, headers: &HeaderMap) -> AppResult<User> 
     };
 
     auth_service::user_from_token(&state.pool, token).await
-}
-
-async fn actor_name(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    let token = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-
-    auth_service::user_from_token(&state.pool, token)
-        .await
-        .ok()
-        .map(|user| {
-            if user.role == "admin" {
-                "suite-admin".to_string()
-            } else {
-                user.display_name
-            }
-        })
 }
 
 fn optional_bearer_token(headers: &HeaderMap) -> Option<&str> {
