@@ -24,3 +24,16 @@ export interface MenuItemRatingSummary {
   rating_count: number;
   my_rating?: number | null;
 }
+
+export interface DishRecommendation {
+  dish_key: string;
+  name: string;
+  category?: string | null;
+  quantity: number;
+  unit?: string | null;
+  reference_url?: string | null;
+  note?: string | null;
+  average_rating?: number | null;
+  rating_count: number;
+  last_made_at: string;
+}

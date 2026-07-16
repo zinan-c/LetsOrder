@@ -7,6 +7,7 @@ import {
 } from '../api/gatherings';
 import {
   createMenuItem,
+  listDishRecommendations,
   listMenuItems,
   updateMenuItem,
   type UpdateMenuItemPayload,
@@ -20,7 +21,7 @@ import JoinMenuModal from '../components/JoinMenuModal';
 import MenuFilters from '../components/MenuFilters';
 import { mockGathering, mockMenuItems } from '../data/mockGathering';
 import type { Gathering, Participant } from '../types/gathering';
-import type { MenuItem, MenuItemStatus } from '../types/menu';
+import type { DishRecommendation, MenuItem, MenuItemStatus } from '../types/menu';
 import {
   getCookieUser,
   setCookieUser,
@@ -101,6 +102,8 @@ export default function GatheringPage() {
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [selectedChef, setSelectedChef] = useState(() => getCookieUser());
+  const [chefRecommendations, setChefRecommendations] = useState<DishRecommendation[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(mockMenuItems);
   const [currentGathering, setCurrentGathering] = useState<Gathering | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -151,31 +154,6 @@ export default function GatheringPage() {
 
     return 0;
   });
-  const chefRecommendations = useMemo(() => {
-    if (!selectedChef) {
-      return [];
-    }
-
-    const seenNames = new Set<string>();
-    return [...menuItems]
-      .filter((item) => item.owner_name === selectedChef)
-      .filter((item) => item.status === 'done' || item.status === 'prepared')
-      .filter((item) => item.id !== editingItem?.id)
-      .sort(
-        (left, right) =>
-          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
-      )
-      .filter((item) => {
-        const key = item.name.trim().toLowerCase();
-        if (!key || seenNames.has(key)) {
-          return false;
-        }
-
-        seenNames.add(key);
-        return true;
-      })
-      .slice(0, 8);
-  }, [editingItem?.id, menuItems, selectedChef]);
   const isEditing = Boolean(editingItem);
   const canUseApi = Boolean(gatheringId && participantId);
   const isReviewReturn =
@@ -267,6 +245,42 @@ export default function GatheringPage() {
       ignore = true;
     };
   }, [currentUser, inviteCode, isReviewReturn, navigate]);
+
+  useEffect(() => {
+    const chefName = selectedChef.trim();
+    if (!isEditorOpen || !chefName) {
+      setChefRecommendations([]);
+      setIsLoadingRecommendations(false);
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadDishRecommendations() {
+      setIsLoadingRecommendations(true);
+
+      try {
+        const response = await listDishRecommendations(chefName);
+        if (!ignore) {
+          setChefRecommendations(response.recommendations);
+        }
+      } catch {
+        if (!ignore) {
+          setChefRecommendations([]);
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingRecommendations(false);
+        }
+      }
+    }
+
+    loadDishRecommendations();
+
+    return () => {
+      ignore = true;
+    };
+  }, [isEditorOpen, selectedChef]);
 
   const ownerOptions = useMemo(() => {
     const names = new Set(
@@ -367,7 +381,7 @@ export default function GatheringPage() {
     }
   }
 
-  function applyRecommendation(item: MenuItem) {
+  function applyRecommendation(item: DishRecommendation) {
     fillInput('name', item.name);
     fillInput('category', item.category ?? 'Main');
     fillInput('quantity', item.quantity);
@@ -589,6 +603,7 @@ export default function GatheringPage() {
           chefRecommendations={chefRecommendations}
           editingItem={editingItem}
           formRef={dishEditorFormRef}
+          isLoadingRecommendations={isLoadingRecommendations}
           isSaving={isSaving}
           ownerOptions={ownerOptions}
           saveError={saveError}

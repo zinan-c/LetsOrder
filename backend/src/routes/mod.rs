@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod chefs;
 pub mod gatherings;
 pub mod health;
 pub mod realtime;
@@ -32,6 +33,7 @@ pub fn router(pool: DbPool, realtime_tx: broadcast::Sender<RealtimeEvent>) -> Ro
         .route("/health", get(health::health_check))
         .route("/api/ws", get(realtime::websocket))
         .nest("/api/auth", auth::router())
+        .nest("/api/chefs", chefs::router())
         .nest("/api/gatherings", gatherings::router())
         .nest("/api/menu-items", gatherings::menu_item_router())
         .nest("/api/photos", gatherings::photo_router())

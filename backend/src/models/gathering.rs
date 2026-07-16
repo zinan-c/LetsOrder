@@ -131,6 +131,20 @@ pub struct MenuItemRatingSummary {
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DishRecommendation {
+    pub dish_key: String,
+    pub name: String,
+    pub category: Option<String>,
+    pub quantity: i64,
+    pub unit: Option<String>,
+    pub reference_url: Option<String>,
+    pub note: Option<String>,
+    pub average_rating: Option<f64>,
+    pub rating_count: i64,
+    pub last_made_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ActivityLog {
     pub id: Uuid,
     pub gathering_id: Uuid,

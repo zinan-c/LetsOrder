@@ -1,5 +1,10 @@
 import { apiRequest } from './client';
-import type { MenuItem, MenuItemRatingSummary, MenuItemStatus } from '../types/menu';
+import type {
+  DishRecommendation,
+  MenuItem,
+  MenuItemRatingSummary,
+  MenuItemStatus,
+} from '../types/menu';
 
 export interface MenuItemsResponse {
   menu_items: MenuItem[];
@@ -15,6 +20,10 @@ export interface MenuRatingsResponse {
 
 export interface MenuRatingResponse {
   rating: MenuItemRatingSummary;
+}
+
+export interface DishRecommendationsResponse {
+  recommendations: DishRecommendation[];
 }
 
 export interface CreateMenuItemPayload {
@@ -65,6 +74,14 @@ export function updateMenuItem(menuItemId: string, payload: UpdateMenuItemPayloa
 
 export function listMenuRatings(gatheringId: string) {
   return apiRequest<MenuRatingsResponse>(`/api/gatherings/${gatheringId}/menu-ratings`);
+}
+
+export function listDishRecommendations(chefName: string, limit = 8) {
+  const params = new URLSearchParams({ limit: String(limit) });
+
+  return apiRequest<DishRecommendationsResponse>(
+    `/api/chefs/${encodeURIComponent(chefName)}/dish-recommendations?${params}`,
+  );
 }
 
 export function rateMenuItem(menuItemId: string, rating: number) {

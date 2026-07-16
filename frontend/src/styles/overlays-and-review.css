@@ -76,6 +76,11 @@
   font-weight: 700;
 }
 
+.recommendation-card .recommendation-rating {
+  color: #b45309;
+  font-size: 0.8rem;
+}
+
 .dish-editor-modal label {
   font-size: 0.92rem;
 }

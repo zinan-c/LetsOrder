@@ -380,7 +380,7 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
             "category": "Drink",
             "quantity": 1,
             "unit": "cups",
-            "owner_name": "Nico",
+            "owner_name": "Nico Chef",
             "reference_url": share_text,
             "status": "planned"
         }),
@@ -413,6 +413,27 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     assert_eq!(update_item_body["menu_item"]["quantity"], 3);
     assert_eq!(update_item_body["menu_item"]["status"], "done");
     assert_eq!(update_item_body["menu_item"]["revision"], 2);
+
+    let (create_second_item_status, create_second_item_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/menu-items"),
+        Some(user_token),
+        json!({
+            "created_by": participant_id,
+            "name": "Iced tea",
+            "category": "Drink",
+            "quantity": 2,
+            "unit": "cups",
+            "owner_name": "Nico Chef",
+            "status": "done"
+        }),
+    )
+    .await;
+    assert_eq!(create_second_item_status, StatusCode::OK);
+    let second_menu_item_id = create_second_item_body["menu_item"]["id"]
+        .as_str()
+        .expect("second menu item id");
 
     let (stale_update_status, stale_update_body) = request_json(
         &app,
@@ -502,6 +523,51 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     assert_eq!(rate_body["rating"]["rating_count"], 1);
     assert_eq!(rate_body["rating"]["my_rating"], 5);
     assert_eq!(rate_body["rating"]["average_rating"], 5.0);
+
+    let (second_rate_status, second_rate_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/menu-items/{second_menu_item_id}/rating"),
+        Some(user_token),
+        json!({ "rating": 3 }),
+    )
+    .await;
+    assert_eq!(second_rate_status, StatusCode::OK);
+    assert_eq!(second_rate_body["rating"]["average_rating"], 3.0);
+
+    let (forbidden_recommendation_status, _) = request_empty(
+        &app,
+        Method::GET,
+        "/api/chefs/Test%20Host/dish-recommendations",
+        Some(user_token),
+    )
+    .await;
+    assert_eq!(forbidden_recommendation_status, StatusCode::FORBIDDEN);
+
+    let (recommendation_status, recommendation_body) = request_empty(
+        &app,
+        Method::GET,
+        "/api/chefs/Nico%20Chef/dish-recommendations",
+        Some(user_token),
+    )
+    .await;
+    assert_eq!(recommendation_status, StatusCode::OK);
+    assert_eq!(
+        recommendation_body["recommendations"][0]["name"],
+        "Cold brew"
+    );
+    assert_eq!(
+        recommendation_body["recommendations"][0]["average_rating"],
+        5.0
+    );
+    assert_eq!(
+        recommendation_body["recommendations"][1]["name"],
+        "Iced tea"
+    );
+    assert_eq!(
+        recommendation_body["recommendations"][1]["average_rating"],
+        3.0
+    );
 
     let (invalid_rate_status, _) = request_json(
         &app,

@@ -1,5 +1,5 @@
 import type { FormEvent, RefObject } from 'react';
-import type { MenuItem } from '../types/menu';
+import type { DishRecommendation, MenuItem } from '../types/menu';
 
 const categoryOptions = [
   'Main',
@@ -22,14 +22,15 @@ const unitOptions = [
 ];
 
 interface DishEditorModalProps {
-  chefRecommendations: MenuItem[];
+  chefRecommendations: DishRecommendation[];
   editingItem: MenuItem | null;
   formRef: RefObject<HTMLFormElement | null>;
+  isLoadingRecommendations: boolean;
   isSaving: boolean;
   ownerOptions: string[];
   saveError: string | null;
   selectedChef: string;
-  onApplyRecommendation: (item: MenuItem) => void;
+  onApplyRecommendation: (item: DishRecommendation) => void;
   onClose: () => void;
   onSelectedChefChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -39,6 +40,7 @@ export default function DishEditorModal({
   chefRecommendations,
   editingItem,
   formRef,
+  isLoadingRecommendations,
   isSaving,
   ownerOptions,
   saveError,
@@ -188,18 +190,27 @@ export default function DishEditorModal({
         <aside className="dish-recommendations">
           <p className="card-kicker">Recommend</p>
           <h3>{selectedChef ? `${selectedChef}'s dishes` : 'Choose a Chef'}</h3>
-          {chefRecommendations.length > 0 ? (
+          {isLoadingRecommendations ? (
+            <p className="empty-panel-note">Loading recommendations...</p>
+          ) : chefRecommendations.length > 0 ? (
             <div className="recommendation-list">
               {chefRecommendations.map((item) => (
                 <button
                   className="recommendation-card"
-                  key={item.id}
+                  key={item.dish_key}
                   type="button"
                   onClick={() => onApplyRecommendation(item)}
                 >
                   <strong>{item.name}</strong>
                   <span>
                     {item.category ?? 'Other'} · {item.quantity} {item.unit}
+                  </span>
+                  <span className="recommendation-rating">
+                    {item.average_rating
+                      ? `★ ${item.average_rating.toFixed(1)} · ${item.rating_count} rating${
+                          item.rating_count === 1 ? '' : 's'
+                        }`
+                      : 'No rating yet'}
                   </span>
                 </button>
               ))}

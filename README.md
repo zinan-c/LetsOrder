@@ -94,7 +94,7 @@ The project can start with npm. If SQLx migrations are used from the command lin
 - Mark menu items as planned, prepared, done, or cancelled.
 - Store an optional reference link for each dish.
 - Filter menu items by status and category.
-- Recommend previously prepared or done dishes when a Chef is selected in the dish editor.
+- Recommend previously prepared or done dishes by historical rating when a Chef is selected in the dish editor.
 - Keep cancelled items instead of deleting them.
 - Lock editing after the gathering expires.
 
@@ -235,6 +235,7 @@ POST   /api/gatherings/:gatheringId/menu-items
 PATCH  /api/menu-items/:menuItemId
 GET    /api/gatherings/:gatheringId/menu-ratings
 POST   /api/menu-items/:menuItemId/rating
+GET    /api/chefs/:chefName/dish-recommendations
 ```
 
 Menu items should not have a public delete endpoint in the MVP. Use `status = cancelled` instead.
@@ -245,6 +246,9 @@ the API returns `409 Conflict` with the latest menu item and the submitted paylo
 
 Menu ratings are available after a gathering is locked. Each participant can rate
 each dish once from 1 to 5 stars; submitting again updates that participant's rating.
+
+Dish recommendations aggregate a Chef's previously prepared or done dishes across
+gatherings. Results sort by average rating, rating count, and most recent use.
 
 ### Photos
 
