@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { MenuItem, MenuItemStatus } from '../types/menu';
+import type { MenuItem, MenuItemRatingSummary, MenuItemStatus } from '../types/menu';
 
 export interface MenuItemsResponse {
   menu_items: MenuItem[];
@@ -7,6 +7,14 @@ export interface MenuItemsResponse {
 
 export interface MenuItemResponse {
   menu_item: MenuItem;
+}
+
+export interface MenuRatingsResponse {
+  ratings: MenuItemRatingSummary[];
+}
+
+export interface MenuRatingResponse {
+  rating: MenuItemRatingSummary;
 }
 
 export interface CreateMenuItemPayload {
@@ -52,5 +60,16 @@ export function updateMenuItem(menuItemId: string, payload: UpdateMenuItemPayloa
   return apiRequest<MenuItemResponse>(`/api/menu-items/${menuItemId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export function listMenuRatings(gatheringId: string) {
+  return apiRequest<MenuRatingsResponse>(`/api/gatherings/${gatheringId}/menu-ratings`);
+}
+
+export function rateMenuItem(menuItemId: string, rating: number) {
+  return apiRequest<MenuRatingResponse>(`/api/menu-items/${menuItemId}/rating`, {
+    method: 'POST',
+    body: JSON.stringify({ rating }),
   });
 }

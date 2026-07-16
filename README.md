@@ -233,6 +233,8 @@ GET    /api/gatherings/:gatheringId/participants
 GET    /api/gatherings/:gatheringId/menu-items
 POST   /api/gatherings/:gatheringId/menu-items
 PATCH  /api/menu-items/:menuItemId
+GET    /api/gatherings/:gatheringId/menu-ratings
+POST   /api/menu-items/:menuItemId/rating
 ```
 
 Menu items should not have a public delete endpoint in the MVP. Use `status = cancelled` instead.
@@ -240,6 +242,9 @@ Menu items should not have a public delete endpoint in the MVP. Use `status = ca
 Menu item updates use optimistic concurrency control. Clients send `expected_revision`
 with `PATCH /api/menu-items/:menuItemId`; if another user has saved a newer revision,
 the API returns `409 Conflict` with the latest menu item and the submitted payload.
+
+Menu ratings are available after a gathering is locked. Each participant can rate
+each dish once from 1 to 5 stars; submitting again updates that participant's rating.
 
 ### Photos
 
@@ -271,8 +276,10 @@ erDiagram
 
     participants ||--o{ menu_items : creates
     participants ||--o{ menu_items : updates
+    participants ||--o{ menu_item_ratings : rates
     participants ||--o{ photos : uploads
     participants ||--o{ activity_logs : performs
+    menu_items ||--o{ menu_item_ratings : receives
 
     gatherings {
         uuid id PK
@@ -331,6 +338,15 @@ erDiagram
         string reference_url
         text note
         string status
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    menu_item_ratings {
+        uuid id PK
+        uuid menu_item_id FK
+        uuid participant_id FK
+        int rating
         timestamp created_at
         timestamp updated_at
     }

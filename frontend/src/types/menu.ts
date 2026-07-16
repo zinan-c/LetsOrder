@@ -17,3 +17,10 @@ export interface MenuItem {
   created_at: string;
   updated_at: string;
 }
+
+export interface MenuItemRatingSummary {
+  menu_item_id: string;
+  average_rating?: number | null;
+  rating_count: number;
+  my_rating?: number | null;
+}

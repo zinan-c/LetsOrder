@@ -117,6 +117,19 @@ pub struct UpdateMenuItemRequest {
     pub expected_revision: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RateMenuItemRequest {
+    pub rating: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MenuItemRatingSummary {
+    pub menu_item_id: Uuid,
+    pub average_rating: Option<f64>,
+    pub rating_count: i64,
+    pub my_rating: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ActivityLog {
     pub id: Uuid,

@@ -32,6 +32,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{gathering_id}/lock", post(lock_gathering))
         .route("/{gathering_id}/activity-logs", get(list_activity_logs))
+        .route("/{gathering_id}/menu-ratings", get(list_menu_ratings))
         .route(
             "/{gathering_id}/participants",
             post(join_gathering).get(list_participants),
@@ -211,6 +212,21 @@ async fn list_activity_logs(
     Ok(Json(serde_json::json!({ "activity_logs": activity_logs })))
 }
 
+async fn list_menu_ratings(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let participant = require_gathering_access(&state, &headers, gathering_id).await?;
+    let ratings = gathering_service::list_menu_ratings(
+        &state.pool,
+        gathering_id,
+        participant.map(|item| item.id),
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "ratings": ratings })))
+}
+
 async fn list_photos(
     State(state): State<AppState>,
     Path(gathering_id): Path<Uuid>,
@@ -265,7 +281,9 @@ async fn create_menu_item(
 }
 
 pub fn menu_item_router() -> Router<AppState> {
-    Router::new().route("/{menu_item_id}", patch(update_menu_item))
+    Router::new()
+        .route("/{menu_item_id}", patch(update_menu_item))
+        .route("/{menu_item_id}/rating", post(rate_menu_item))
 }
 
 pub fn photo_router() -> Router<AppState> {
@@ -286,6 +304,23 @@ async fn update_menu_item(
     let menu_item = gathering_service::update_menu_item(&state.pool, menu_item_id, payload).await?;
     notify_refresh(&state, Some(menu_item.gathering_id));
     Ok(Json(serde_json::json!({ "menu_item": menu_item })))
+}
+
+async fn rate_menu_item(
+    State(state): State<AppState>,
+    Path(menu_item_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(payload): Json<crate::models::RateMenuItemRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let user = require_user(&state, &headers).await?;
+    let gathering_id = gathering_service::menu_item_gathering_id(&state.pool, menu_item_id).await?;
+    let participant =
+        auth_service::ensure_participant_for_user(&state.pool, gathering_id, user.id).await?;
+    let rating =
+        gathering_service::rate_menu_item(&state.pool, menu_item_id, participant.id, payload)
+            .await?;
+    notify_refresh(&state, Some(gathering_id));
+    Ok(Json(serde_json::json!({ "rating": rating })))
 }
 
 async fn update_photo(

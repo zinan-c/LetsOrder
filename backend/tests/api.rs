@@ -457,6 +457,16 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     .await;
     assert_eq!(forbidden_status, StatusCode::FORBIDDEN);
 
+    let (early_rate_status, _) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/menu-items/{menu_item_id}/rating"),
+        Some(user_token),
+        json!({ "rating": 5 }),
+    )
+    .await;
+    assert_eq!(early_rate_status, StatusCode::FORBIDDEN);
+
     let (lock_status, lock_body) = request_empty(
         &app,
         Method::POST,
@@ -466,6 +476,53 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     .await;
     assert_eq!(lock_status, StatusCode::OK);
     assert_eq!(lock_body["gathering"]["is_locked"], true);
+
+    let (ratings_status, ratings_body) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/menu-ratings"),
+        Some(user_token),
+    )
+    .await;
+    assert_eq!(ratings_status, StatusCode::OK);
+    assert_eq!(ratings_body["ratings"][0]["menu_item_id"], menu_item_id);
+    assert_eq!(ratings_body["ratings"][0]["rating_count"], 0);
+    assert!(ratings_body["ratings"][0]["average_rating"].is_null());
+
+    let (rate_status, rate_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/menu-items/{menu_item_id}/rating"),
+        Some(user_token),
+        json!({ "rating": 5 }),
+    )
+    .await;
+    assert_eq!(rate_status, StatusCode::OK);
+    assert_eq!(rate_body["rating"]["menu_item_id"], menu_item_id);
+    assert_eq!(rate_body["rating"]["rating_count"], 1);
+    assert_eq!(rate_body["rating"]["my_rating"], 5);
+    assert_eq!(rate_body["rating"]["average_rating"], 5.0);
+
+    let (invalid_rate_status, _) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/menu-items/{menu_item_id}/rating"),
+        Some(user_token),
+        json!({ "rating": 6 }),
+    )
+    .await;
+    assert_eq!(invalid_rate_status, StatusCode::BAD_REQUEST);
+
+    let (rated_summary_status, rated_summary_body) = request_empty(
+        &app,
+        Method::GET,
+        &format!("/api/gatherings/{gathering_id}/menu-ratings"),
+        Some(user_token),
+    )
+    .await;
+    assert_eq!(rated_summary_status, StatusCode::OK);
+    assert_eq!(rated_summary_body["ratings"][0]["rating_count"], 1);
+    assert_eq!(rated_summary_body["ratings"][0]["my_rating"], 5);
 }
 
 #[tokio::test]

@@ -38,6 +38,9 @@ export default function useRealtimeRefresh(
             queryKey: ['menu-items', message.gathering_id],
           });
           queryClient.invalidateQueries({
+            queryKey: ['menu-ratings', message.gathering_id],
+          });
+          queryClient.invalidateQueries({
             queryKey: ['participants', message.gathering_id],
           });
           queryClient.invalidateQueries({

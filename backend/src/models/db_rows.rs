@@ -3,7 +3,10 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 
-use super::{ActivityLog, Gathering, GatheringListItem, MenuItem, Participant, Photo, User};
+use super::{
+    ActivityLog, Gathering, GatheringListItem, MenuItem, MenuItemRatingSummary, Participant, Photo,
+    User,
+};
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct UserRow {
@@ -174,6 +177,27 @@ impl TryFrom<MenuItemRow> for MenuItem {
             revision: row.revision,
             created_at: row.created_at,
             updated_at: row.updated_at,
+        })
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct MenuItemRatingSummaryRow {
+    pub menu_item_id: String,
+    pub average_rating: Option<f64>,
+    pub rating_count: i64,
+    pub my_rating: Option<i64>,
+}
+
+impl TryFrom<MenuItemRatingSummaryRow> for MenuItemRatingSummary {
+    type Error = AppError;
+
+    fn try_from(row: MenuItemRatingSummaryRow) -> AppResult<Self> {
+        Ok(Self {
+            menu_item_id: parse_uuid(&row.menu_item_id)?,
+            average_rating: row.average_rating,
+            rating_count: row.rating_count,
+            my_rating: row.my_rating,
         })
     }
 }

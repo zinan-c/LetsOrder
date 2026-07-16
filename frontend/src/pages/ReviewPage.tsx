@@ -8,7 +8,7 @@ import {
   updatePhotoCaption,
   uploadPhoto,
 } from '../api/gatherings';
-import { listMenuItems } from '../api/menuItems';
+import { listMenuItems, listMenuRatings, rateMenuItem } from '../api/menuItems';
 import DishCard from '../components/DishCard';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
@@ -38,6 +38,18 @@ export default function ReviewPage() {
   const finalMenuItems =
     menuItemsQuery.data?.menu_items.filter((item) => item.status !== 'cancelled') ??
     [];
+  const ratingsQuery = useQuery({
+    queryKey: ['menu-ratings', gathering?.id],
+    queryFn: () => listMenuRatings(gathering?.id ?? ''),
+    enabled: Boolean(gathering?.id && gathering?.is_locked),
+    retry: false,
+  });
+  const ratingsByMenuItem = new Map(
+    (ratingsQuery.data?.ratings ?? []).map((rating) => [
+      rating.menu_item_id,
+      rating,
+    ]),
+  );
   const photosQuery = useQuery({
     queryKey: ['photos', gathering?.id],
     queryFn: () => listPhotos(gathering?.id ?? ''),
@@ -67,6 +79,14 @@ export default function ReviewPage() {
     mutationFn: deletePhoto,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['photos', gathering?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
+    },
+  });
+  const ratingMutation = useMutation({
+    mutationFn: ({ menuItemId, rating }: { menuItemId: string; rating: number }) =>
+      rateMenuItem(menuItemId, rating),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['menu-ratings', gathering?.id] });
       await queryClient.invalidateQueries({ queryKey: ['activity-logs', gathering?.id] });
     },
   });
@@ -155,13 +175,64 @@ export default function ReviewPage() {
           </div>
         </div>
         <div className="dish-list final-menu-list">
-          {finalMenuItems.map((item) => (
-            <DishCard item={item} key={item.id} readOnly />
-          ))}
+          {finalMenuItems.map((item) => {
+            const rating = ratingsByMenuItem.get(item.id);
+            const averageRating =
+              typeof rating?.average_rating === 'number'
+                ? rating.average_rating.toFixed(1)
+                : 'No ratings yet';
+
+            return (
+              <article className="rated-dish-card" key={item.id}>
+                <DishCard item={item} readOnly />
+                <div className="rating-panel">
+                  <div>
+                    <p className="card-kicker">Rating</p>
+                    <strong>{averageRating}</strong>
+                    <span>
+                      {rating?.rating_count
+                        ? `${rating.rating_count} rating${rating.rating_count === 1 ? '' : 's'}`
+                        : 'Be the first to rate'}
+                    </span>
+                  </div>
+                  {isAdmin ? (
+                    <span className="rating-readonly-note">Participants can rate dishes.</span>
+                  ) : (
+                    <div className="star-rating" aria-label={`Rate ${item.name}`}>
+                      {[1, 2, 3, 4, 5].map((score) => (
+                        <button
+                          aria-label={`Rate ${item.name} ${score} star${score === 1 ? '' : 's'}`}
+                          className={
+                            score <= (rating?.my_rating ?? 0)
+                              ? 'star-button active'
+                              : 'star-button'
+                          }
+                          disabled={ratingMutation.isPending}
+                          key={score}
+                          type="button"
+                          onClick={() =>
+                            ratingMutation.mutate({
+                              menuItemId: item.id,
+                              rating: score,
+                            })
+                          }
+                        >
+                          ★
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
           {finalMenuItems.length === 0 ? (
             <p className="empty-panel-note">No final menu items yet.</p>
           ) : null}
         </div>
+        {ratingMutation.isError ? (
+          <p className="error">Could not save this rating.</p>
+        ) : null}
       </section>
 
       <section className="section-block">
