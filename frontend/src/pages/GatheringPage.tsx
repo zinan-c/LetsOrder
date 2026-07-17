@@ -495,6 +495,7 @@ export default function GatheringPage() {
   const isAdmin = getCurrentUser()?.role === 'admin';
   const needsDisplayName = Boolean(currentGathering && !participantId && !isAdmin);
   const canEditMenu = Boolean(participantId) && !isCurrentMenuLocked;
+  const adminAddDishHint = isAdmin && !participantId && !isCurrentMenuLocked;
 
   return (
     <div className="menu-workspace">
@@ -509,13 +510,21 @@ export default function GatheringPage() {
             </p>
           </div>
           {!needsDisplayName ? (
-            <button
-              disabled={!canEditMenu}
-              type="button"
-              onClick={openAddDish}
-            >
-              {isCurrentMenuLocked ? 'Menu locked' : 'Add dish'}
-            </button>
+            <div className="add-dish-action">
+              <button
+                disabled={!canEditMenu}
+                type="button"
+                onClick={openAddDish}
+              >
+                {isCurrentMenuLocked ? 'Menu locked' : 'Add dish'}
+              </button>
+              {adminAddDishHint ? (
+                <p className="action-hint">
+                  Admin can manage this gathering, but dishes must be edited by
+                  participants.
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
