@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     db::DbPool,
-    errors::AppResult,
+    errors::{AppError, AppResult},
     models::{Gathering, User},
 };
 
@@ -15,11 +15,16 @@ pub async fn lock_gathering(
     actor: &User,
 ) -> AppResult<Gathering> {
     ensure_user_can_manage(pool, gathering_id, actor).await?;
-    get_gathering_by_id(pool, gathering_id).await?;
+    let current = get_gathering_by_id(pool, gathering_id).await?;
+    if current.status == "archived" {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "archived gatherings cannot be locked"
+        })));
+    }
 
     let now = Utc::now();
 
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         UPDATE gatherings
         SET status = 'locked',
@@ -27,7 +32,7 @@ pub async fn lock_gathering(
             expires_at = ?,
             locked_at = ?,
             updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'active' AND is_locked = 0
         "#,
     )
     .bind(now)
@@ -36,6 +41,12 @@ pub async fn lock_gathering(
     .bind(gathering_id.to_string())
     .execute(pool)
     .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "only active gatherings can be locked"
+        })));
+    }
 
     insert_activity_log(
         pool,

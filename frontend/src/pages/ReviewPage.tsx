@@ -92,6 +92,14 @@ export default function ReviewPage() {
   });
   const uploadedPhotos = photosQuery.data?.photos ?? [];
 
+  if (gatheringQuery.isLoading) {
+    return <PageCard eyebrow="Gathering archive" title="Loading review" description="Loading the final menu and photo wall..." />;
+  }
+
+  if (gatheringQuery.isError || !gathering) {
+    return <PageCard eyebrow="Gathering archive" title="Review unavailable" description="This gathering could not be loaded. Check the invitation or try again later." />;
+  }
+
   function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file || !gathering?.id) {
@@ -127,7 +135,7 @@ export default function ReviewPage() {
     }
   }
 
-  if (gathering && !gathering.is_locked) {
+  if (!gathering.is_locked) {
     return (
       <PageCard
         eyebrow="Gathering archive"

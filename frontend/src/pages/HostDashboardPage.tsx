@@ -271,6 +271,14 @@ export default function HostDashboardPage() {
     };
   }, []);
 
+  if (gatheringQuery.isLoading) {
+    return <PageCard eyebrow="On Track" title="Loading gathering" description="Loading host controls and recent activity..." />;
+  }
+
+  if (gatheringQuery.isError || !gathering) {
+    return <PageCard eyebrow="On Track" title="Gathering unavailable" description="This gathering could not be loaded. Check the invitation or try again later." />;
+  }
+
   const participants = participantsQuery.data?.participants ?? [];
   const recentParticipants = participants.slice(0, 4);
   const activityLogs = activityQuery.data?.activity_logs ?? [];

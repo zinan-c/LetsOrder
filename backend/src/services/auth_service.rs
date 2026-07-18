@@ -1,3 +1,7 @@
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use chrono::{Duration, Utc};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -142,6 +146,37 @@ pub async fn logout(pool: &DbPool, token: &str) -> AppResult<()> {
     Ok(())
 }
 
+pub async fn create_websocket_ticket(pool: &DbPool, token: &str) -> AppResult<String> {
+    let user = user_from_token(pool, token).await?;
+    let ticket = Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO websocket_tickets (ticket, user_id, expires_at) VALUES (?, ?, ?)")
+        .bind(&ticket)
+        .bind(user.id.to_string())
+        .bind(Utc::now() + Duration::minutes(1))
+        .execute(pool)
+        .await?;
+    Ok(ticket)
+}
+
+pub async fn consume_websocket_ticket(pool: &DbPool, ticket: &str) -> AppResult<User> {
+    let row: Option<(String, chrono::DateTime<Utc>)> =
+        sqlx::query_as("SELECT user_id, expires_at FROM websocket_tickets WHERE ticket = ?")
+            .bind(ticket.trim())
+            .fetch_optional(pool)
+            .await?;
+    sqlx::query("DELETE FROM websocket_tickets WHERE ticket = ?")
+        .bind(ticket.trim())
+        .execute(pool)
+        .await?;
+    let Some((user_id, expires_at)) = row else {
+        return Err(AppError::Unauthorized);
+    };
+    if expires_at <= Utc::now() {
+        return Err(AppError::Unauthorized);
+    }
+    get_user_by_id(pool, parse_uuid(&user_id)?).await
+}
+
 pub async fn update_account(
     pool: &DbPool,
     token: &str,
@@ -165,6 +200,14 @@ pub async fn update_account(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(hash_password);
+    let password_changed = password_hash.is_some();
+    if let Some(password) = payload.password.as_deref()
+        && password.trim().len() < 8
+    {
+        return Err(AppError::Validation(
+            "password must be at least 8 characters".to_string(),
+        ));
+    }
     let now = Utc::now();
 
     sqlx::query(
@@ -182,6 +225,14 @@ pub async fn update_account(
     .bind(user.id.to_string())
     .execute(pool)
     .await?;
+
+    if password_changed {
+        sqlx::query("DELETE FROM auth_sessions WHERE user_id = ? AND token != ?")
+            .bind(user.id.to_string())
+            .bind(token)
+            .execute(pool)
+            .await?;
+    }
 
     sqlx::query(
         r#"
@@ -244,6 +295,14 @@ pub async fn update_member(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(hash_password);
+    let password_changed = password_hash.is_some();
+    if let Some(password) = payload.password.as_deref()
+        && password.trim().len() < 8
+    {
+        return Err(AppError::Validation(
+            "password must be at least 8 characters".to_string(),
+        ));
+    }
     let now = Utc::now();
 
     sqlx::query(
@@ -261,6 +320,13 @@ pub async fn update_member(
     .bind(user_id.to_string())
     .execute(pool)
     .await?;
+
+    if password_changed {
+        sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
+            .bind(user_id.to_string())
+            .execute(pool)
+            .await?;
+    }
 
     sqlx::query(
         r#"
@@ -333,39 +399,11 @@ pub async fn ensure_participant_for_user(
         return get_participant_by_id(pool, parse_uuid(&participant_id)?).await;
     }
 
-    if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
-        r#"
-        SELECT id
-        FROM participants
-        WHERE gathering_id = ? AND display_name = ? AND user_id IS NULL
-        "#,
-    )
-    .bind(gathering_id.to_string())
-    .bind(&user.display_name)
-    .fetch_optional(pool)
-    .await?
-    {
-        sqlx::query(
-            r#"
-            UPDATE participants
-            SET user_id = ?, updated_at = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(user_id.to_string())
-        .bind(Utc::now())
-        .bind(participant_id.to_string())
-        .execute(pool)
-        .await?;
-
-        return get_participant_by_id(pool, parse_uuid(&participant_id)?).await;
-    }
-
     let participant_id = Uuid::new_v4();
     let now = Utc::now();
-    sqlx::query(
+    let result = sqlx::query(
         r#"
-        INSERT INTO participants (
+        INSERT OR IGNORE INTO participants (
             id, gathering_id, user_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
         )
         VALUES (?, ?, ?, ?, 'participant', ?, ?, ?, ?)
@@ -381,6 +419,17 @@ pub async fn ensure_participant_for_user(
     .bind(now)
     .execute(pool)
     .await?;
+
+    if result.rows_affected() == 0 {
+        let existing = sqlx::query_as::<_, (String,)>(
+            "SELECT id FROM participants WHERE gathering_id = ? AND user_id = ?",
+        )
+        .bind(gathering_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_one(pool)
+        .await?;
+        return get_participant_by_id(pool, parse_uuid(&existing.0)?).await;
+    }
 
     sqlx::query(
         r#"
@@ -592,11 +641,22 @@ fn random_password() -> String {
 }
 
 fn hash_password(password: &str) -> String {
-    let salt = Uuid::new_v4().simple().to_string();
-    salted_sha256_password(password, &salt)
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .expect("argon2 password hashing should succeed")
+        .to_string()
 }
 
 fn verify_password(password: &str, stored_hash: &str) -> bool {
+    if stored_hash.starts_with("$argon2") {
+        return PasswordHash::new(stored_hash).ok().is_some_and(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
+        });
+    }
+
     if let Some((scheme, rest)) = stored_hash.split_once('$')
         && scheme == HASH_SCHEME_SHA256
     {

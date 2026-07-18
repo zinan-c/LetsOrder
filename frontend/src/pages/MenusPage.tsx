@@ -1,60 +1,30 @@
 import { useEffect, useState } from 'react';
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   deleteGathering,
   listGatherings,
-  listParticipants,
 } from '../api/gatherings';
 import PageCard from '../components/PageCard';
 import StatusPill from '../components/StatusPill';
 import type { GatheringListItem } from '../types/gathering';
-import { getCurrentUser, syncUserFromQuery, USER_CHANGED_EVENT } from '../utils/user';
+import { getCurrentUser, USER_CHANGED_EVENT } from '../utils/user';
 
 export default function MenusPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const initialUser = syncUserFromQuery();
-  const [currentUser, setCurrentUser] = useState(initialUser);
-  const isAdmin = getCurrentUser()?.role === 'admin';
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
+  const isAdmin = currentUser?.role === 'admin';
   const [menuToDelete, setMenuToDelete] = useState<GatheringListItem | null>(
     null,
   );
   const gatheringsQuery = useQuery({
-    queryKey: ['gatherings'],
+    queryKey: ['gatherings', currentUser?.id],
     queryFn: listGatherings,
+    enabled: Boolean(currentUser),
     retry: false,
   });
-  const realMenus = gatheringsQuery.data?.gatherings ?? [];
-  const participantQueries = useQueries({
-    queries: realMenus.map((menu) => ({
-      queryKey: ['participants', menu.id],
-      queryFn: () => listParticipants(menu.id),
-      enabled: Boolean(currentUser && !isAdmin),
-      retry: false,
-    })),
-  });
-  const participatedMenuIds = new Set(
-    participantQueries.flatMap((query, index) => {
-      const hasCurrentUser = query.data?.participants.some(
-        (participant) => participant.display_name === currentUser,
-      );
-
-      return hasCurrentUser ? [realMenus[index].id] : [];
-    }),
-  );
-  const menus = isAdmin
-    ? realMenus
-    : realMenus.filter((menu) => participatedMenuIds.has(menu.id));
-  const isFilteringMenus =
-    !isAdmin &&
-    Boolean(currentUser) &&
-    participantQueries.some((query) => query.isLoading);
+  const menus = gatheringsQuery.data?.gatherings ?? [];
   const deleteMutation = useMutation({
     mutationFn: deleteGathering,
     onSuccess: async () => {
@@ -66,7 +36,7 @@ export default function MenusPage() {
   useEffect(() => {
     function handleUserChanged(event: Event) {
       const user = event instanceof CustomEvent ? event.detail : null;
-      setCurrentUser(user?.display_name ?? '');
+      setCurrentUser(user);
     }
 
     window.addEventListener(USER_CHANGED_EVENT, handleUserChanged);
@@ -125,11 +95,16 @@ export default function MenusPage() {
           </article>
         ))}
       </div>
-      {isFilteringMenus ? (
-        <p className="empty-panel-note">Loading menus you joined...</p>
+      {gatheringsQuery.isLoading ? (
+        <p className="empty-panel-note">Loading menus...</p>
       ) : null}
-      {!isFilteringMenus && currentUser && menus.length === 0 ? (
-        <p className="empty-panel-note">No menus joined by {currentUser} yet.</p>
+      {gatheringsQuery.isError ? (
+        <p className="error">Could not load menus. Please try again.</p>
+      ) : null}
+      {!gatheringsQuery.isLoading && !gatheringsQuery.isError && menus.length === 0 ? (
+        <p className="empty-panel-note">
+          {isAdmin ? 'No gatherings yet.' : 'No menus joined yet.'}
+        </p>
       ) : null}
 
       {menuToDelete ? (

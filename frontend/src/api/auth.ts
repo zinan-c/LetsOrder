@@ -13,6 +13,16 @@ export interface MemberResponse {
   member: User;
 }
 
+export interface WebSocketTicketResponse {
+  ticket: string;
+}
+
+export function createWebSocketTicket() {
+  return apiRequest<WebSocketTicketResponse>('/api/auth/ws-ticket', {
+    method: 'POST',
+  });
+}
+
 export function login(username: string, password: string) {
   return apiRequest<AuthResponse>('/api/auth/login', {
     method: 'POST',

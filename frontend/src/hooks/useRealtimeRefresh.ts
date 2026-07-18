@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { User } from '../types/auth';
 import { getAuthToken } from '../utils/user';
+import { createWebSocketTicket } from '../api/auth';
 
 export default function useRealtimeRefresh(
   currentUser: User | null,
@@ -13,13 +14,19 @@ export default function useRealtimeRefresh(
       return;
     }
 
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
-    const wsUrl = new URL('/api/ws', apiBaseUrl || window.location.origin);
-    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.searchParams.set('token', token);
+    let socket: WebSocket | null = null;
+    let cancelled = false;
+    void createWebSocketTicket().then(({ ticket }) => {
+      if (cancelled) return;
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
+      const wsUrl = new URL('/api/ws', apiBaseUrl || window.location.origin);
+      wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl.searchParams.set('ticket', ticket);
+      socket = new WebSocket(wsUrl);
+      socket.onmessage = handleMessage;
+    }).catch(() => undefined);
 
-    const socket = new WebSocket(wsUrl);
-    socket.onmessage = (event) => {
+    function handleMessage(event: MessageEvent) {
       try {
         const message = JSON.parse(event.data) as {
           event?: string;
@@ -53,10 +60,11 @@ export default function useRealtimeRefresh(
       } catch {
         return;
       }
-    };
+    }
 
     return () => {
-      socket.close();
+      cancelled = true;
+      socket?.close();
     };
   }, [currentUser, queryClient]);
 }

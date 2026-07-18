@@ -308,7 +308,7 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     assert_eq!(joined_menu_status, StatusCode::OK);
 
     let user_response = register_user(&app, "Nico", gathering_id).await;
-    let user_token = user_response["token"].as_str().expect("user token");
+    let mut user_token = user_response["token"].as_str().expect("user token");
     let user_id = user_response["user"]["id"].as_str().expect("user id");
     let username = user_response["user"]["username"]
         .as_str()
@@ -375,6 +375,7 @@ async fn auth_gathering_menu_activity_and_permissions_flow() {
     .await;
     assert_eq!(member_login_status, StatusCode::OK);
     assert_eq!(member_login_body["user"]["display_name"], "Nico Chef");
+    user_token = member_login_body["token"].as_str().expect("member token");
 
     let (join_status, join_body) = request_json(
         &app,
@@ -627,6 +628,15 @@ async fn photo_admin_controls_and_token_lifecycle_flow() {
     let user_response = register_user(&app, "Mia", gathering_id).await;
     let user_token = user_response["token"].as_str().expect("user token");
 
+    let (lock_status, _) = request_empty(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/lock"),
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(lock_status, StatusCode::OK);
+
     let boundary = "letsorder-test-boundary";
     let invalid_multipart_body = format!(
         "--{boundary}\r\n\
@@ -659,7 +669,13 @@ Content-Disposition: form-data; name=\"file\"; filename=\"memory.png\"\r\n\
 Content-Type: image/png\r\n\r\n"
     )
     .into_bytes();
-    multipart_body.extend_from_slice(b"\x89PNG\r\n\x1a\nvalid-test-png");
+    multipart_body.extend_from_slice(&[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x04, 0x00, 0x00, 0x00, 0xb5,
+        0x1c, 0x0c, 0x02, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64,
+        0xf8, 0x0f, 0x00, 0x01, 0x05, 0x01, 0x01, 0x27, 0x18, 0xe3, 0x66, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
     multipart_body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     let upload_response = app
         .clone()

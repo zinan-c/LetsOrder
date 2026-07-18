@@ -2,6 +2,7 @@ use std::path::Path;
 
 use axum::extract::Multipart;
 use chrono::Utc;
+use image::{GenericImageView, ImageReader};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
@@ -19,7 +20,10 @@ use super::common::{
 const MAX_PHOTO_BYTES: usize = 8 * 1024 * 1024;
 
 pub async fn list_photos(pool: &DbPool, gathering_id: Uuid) -> AppResult<Vec<Photo>> {
-    get_gathering_by_id(pool, gathering_id).await?;
+    let gathering = get_gathering_by_id(pool, gathering_id).await?;
+    if !gathering.is_locked {
+        return Err(AppError::Forbidden);
+    }
 
     let rows = sqlx::query_as::<_, PhotoRow>(
         r#"
@@ -81,6 +85,18 @@ pub async fn upload_photo(
     let file_bytes = file_bytes.ok_or_else(|| AppError::Validation("file is required".into()))?;
     if file_bytes.len() > MAX_PHOTO_BYTES {
         return Err(AppError::Validation("photo is too large".to_string()));
+    }
+
+    let image = ImageReader::new(std::io::Cursor::new(&file_bytes))
+        .with_guessed_format()
+        .map_err(|_| AppError::Validation("unsupported or invalid image".to_string()))?
+        .decode()
+        .map_err(|_| AppError::Validation("unsupported or invalid image".to_string()))?;
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 || width > 12_000 || height > 12_000 {
+        return Err(AppError::Validation(
+            "image dimensions are not supported".to_string(),
+        ));
     }
 
     let requested_extension = file_name

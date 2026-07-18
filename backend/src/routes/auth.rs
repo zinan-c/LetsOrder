@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/register", post(register))
         .route("/me", get(me))
         .route("/logout", post(logout))
+        .route("/ws-ticket", post(ws_ticket))
         .route("/account", patch(update_account))
         .route("/members", get(list_members))
         .route("/members/{user_id}", patch(update_member))
@@ -80,6 +81,15 @@ async fn update_member(
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> AppResult<StatusCode> {
     auth_service::logout(&state.pool, bearer_token(&headers)?).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn ws_ticket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let ticket =
+        auth_service::create_websocket_ticket(&state.pool, bearer_token(&headers)?).await?;
+    Ok(Json(serde_json::json!({ "ticket": ticket })))
 }
 
 fn bearer_token(headers: &HeaderMap) -> AppResult<&str> {

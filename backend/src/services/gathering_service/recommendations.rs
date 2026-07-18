@@ -1,4 +1,8 @@
-use crate::{db::DbPool, errors::AppResult, models::DishRecommendation};
+use crate::{
+    db::DbPool,
+    errors::AppResult,
+    models::{DishRecommendation, User},
+};
 
 const DEFAULT_RECOMMENDATION_LIMIT: i64 = 8;
 const MAX_RECOMMENDATION_LIMIT: i64 = 24;
@@ -7,6 +11,7 @@ pub async fn list_dish_recommendations(
     pool: &DbPool,
     chef_name: &str,
     limit: Option<i64>,
+    user: &User,
 ) -> AppResult<Vec<DishRecommendation>> {
     let chef_name = chef_name.trim();
     let limit = limit
@@ -31,6 +36,13 @@ pub async fn list_dish_recommendations(
             WHERE m.owner_name = ?
               AND m.status IN ('prepared', 'done')
               AND TRIM(m.name) != ''
+              AND (
+                ? = 'admin'
+                OR EXISTS (
+                  SELECT 1 FROM participants p
+                  WHERE p.gathering_id = m.gathering_id AND p.user_id = ?
+                )
+              )
         ),
         rating_summary AS (
             SELECT
@@ -74,6 +86,8 @@ pub async fn list_dish_recommendations(
         "#,
     )
     .bind(chef_name)
+    .bind(&user.role)
+    .bind(user.id.to_string())
     .bind(limit)
     .fetch_all(pool)
     .await?;

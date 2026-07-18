@@ -30,10 +30,11 @@ async fn list_dish_recommendations(
     Query(query): Query<DishRecommendationQuery>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    require_user(&state, &headers).await?;
+    let user = require_user(&state, &headers).await?;
 
     let recommendations =
-        gathering_service::list_dish_recommendations(&state.pool, &chef_name, query.limit).await?;
+        gathering_service::list_dish_recommendations(&state.pool, &chef_name, query.limit, &user)
+            .await?;
 
     Ok(Json(
         serde_json::json!({ "recommendations": recommendations }),

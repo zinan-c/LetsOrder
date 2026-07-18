@@ -64,7 +64,7 @@ pub async fn create_gathering(
         INSERT INTO participants (
             id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, 'host', ?, ?, ?, ?)
+        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
         "#,
     )
     .bind(host_id.to_string())
@@ -271,6 +271,11 @@ pub async fn update_gathering_deadline(
 ) -> AppResult<Gathering> {
     ensure_user_can_manage(pool, gathering_id, actor).await?;
     let current = get_gathering_by_id(pool, gathering_id).await?;
+    if current.status == "archived" {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "archived gatherings cannot be reopened"
+        })));
+    }
 
     let now = Utc::now();
     let should_lock = payload.expires_at <= now;
@@ -283,7 +288,7 @@ pub async fn update_gathering_deadline(
             is_locked = CASE WHEN ? THEN 1 ELSE 0 END,
             locked_at = CASE WHEN ? THEN COALESCE(locked_at, ?) ELSE NULL END,
             updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND status != 'archived'
         "#,
     )
     .bind(payload.expires_at)

@@ -1,294 +1,322 @@
 # LetsOrder Code Review
 
-Review date: 2026-07-16
+Review date: 2026-07-18
 
-Scope: all backend, frontend, migration, script, API test, and Playwright test code
-currently present in the repository.
+Reviewed revision: `40f0010`
 
-## Findings
+Scope: all backend, frontend, migrations, scripts, API tests, and Playwright
+tests currently present in the repository.
 
-### P0 - Display names can be used to gain administrative privileges
+## Current Findings
 
-Account updates allow any non-admin user to set their `display_name` to
-`suite-admin`:
+### P0 - A user can claim the Host role by registering with the same display name
 
-- `backend/src/services/auth_service.rs:152`
+Creating a gathering inserts a Host participant without a `user_id`:
 
-Management authorization then relies on that editable display name:
+- `backend/src/services/gathering_service/gatherings.rs:62`
 
-- `backend/src/services/gathering_service/common.rs:177`
-- `backend/src/services/gathering_service/common.rs:206`
-- `backend/src/routes/gatherings.rs:391`
+When a user registers or joins, `ensure_participant_for_user` searches for an
+unbound participant with the same editable display name and assigns that
+participant to the user:
 
-A normal user can change their display name and then lock, reopen, or archive a
-gathering, and update or delete photos. The same design allows a user to
-impersonate a gathering host by choosing the host's display name.
+- `backend/src/services/auth_service.rs:336`
 
-Authorization should use the authenticated user's immutable ID and role.
-Gathering host ownership should be represented by a user ID or participant ID
-bound to that user. Display names must never be treated as authorization
-credentials.
+The claimed participant retains its `host` role. Management authorization now
+correctly checks immutable user membership, but that check consequently trusts
+the role obtained through the unsafe claim:
 
-Resolution comment: management authorization now receives the authenticated
-`User` and checks immutable `role`/`user_id` membership instead of editable
-display names. Account/member updates and registration reject the reserved
-`suite-admin` display name. Photo upload also binds to the authenticated
-participant instead of creating participants by display name. A fuller
-host-owner model can still be added later if non-admin host management returns.
+- `backend/src/services/gathering_service/common.rs:121`
 
-### P0 - Password storage and the fixed administrator credentials are insecure
+Any user who knows the invitation and Host display name can therefore register
+with that name and then lock, reopen, or archive the gathering.
 
-The administrator username and password are hardcoded:
+Bind the Host participant to a real user when the gathering is created, or
+require a one-time Host claim token. Display-name matching must not transfer an
+existing role. Add a regression test that registers with `host_name` and
+expects participant-level permissions only.
 
-- `backend/src/services/auth_service.rs:13`
+### P1 - Password handling is still unsuitable for a network deployment
 
-The fixed password is also documented in the README and displayed in the
-frontend settings page. User passwords are hashed with a fixed salt and a
-64-bit FNV-style hash:
+If `LETSORDER_ADMIN_PASSWORD` is missing, the server falls back to the publicly
+known `Admin_1234` password:
 
-- `backend/src/services/auth_service.rs:593`
+- `backend/src/services/auth_service.rs:647`
 
-Generated passwords consist of the display name plus only three digits:
+Regular passwords use a single salted SHA-256 operation, which is fast enough
+for efficient offline guessing:
 
-- `backend/src/services/auth_service.rs:77`
+- `backend/src/services/auth_service.rs:594`
+- `backend/src/services/auth_service.rs:613`
 
-This is unsuitable for any network-accessible deployment. Use Argon2id or
-bcrypt with per-password salts, configure initial administrator credentials
-through environment variables or a setup flow, and add login rate limiting.
+The login endpoint has no attempt throttling or temporary lockout. Password
+updates also leave all existing sessions valid for up to 48 hours.
 
-Resolution comment: newly stored user passwords now use a per-password salted
-hash format and existing legacy hashes remain readable for compatibility.
-Generated first-use passwords are random temporary passwords instead of
-`display_name + 3 digits`. Fixed-password UI/README text was removed and the
-system admin password can be configured through `LETSORDER_ADMIN_PASSWORD`.
-Remaining hardening: replace the interim SHA-256 format with Argon2id/bcrypt
-and add login rate limiting before any real deployment.
+Require the administrator password at startup, use Argon2id or bcrypt with
+per-password salts, enforce a password policy, rate-limit login attempts, and
+revoke the user's existing sessions after a password reset.
 
-### P1 - Optimistic concurrency control is not atomic
+### P1 - Chef recommendations expose history across unrelated gatherings
 
-Menu item updates read the current revision and compare it in application code:
+The recommendation route allows any authenticated user to query any Chef name:
 
-- `backend/src/services/gathering_service/menu_items.rs:107`
+- `backend/src/routes/chefs.rs:27`
 
-The subsequent SQL update does not include the expected revision:
+The query searches all menu items in the database and does not scope results to
+gatherings visible to the caller:
 
-- `backend/src/services/gathering_service/menu_items.rs:156`
+- `backend/src/services/gathering_service/recommendations.rs:16`
 
-Two requests that read the same revision can therefore both pass the check and
-both update the record. The second write silently overwrites the first.
-`expected_revision` is also optional, allowing callers to bypass conflict
-detection.
+Results contain dish names, notes, and reference URLs. A user can query common
+display names and retrieve history from unrelated gatherings.
 
-The update should use a statement equivalent to:
+Use an immutable Chef user/participant identifier and pass the authenticated
+user into the service. Restrict candidate gatherings to those shared by the
+caller, unless the caller is an administrator.
 
-```sql
-UPDATE menu_items
-SET ..., revision = revision + 1
-WHERE id = ? AND revision = ?
-```
+### P1 - Switching accounts does not clear user-scoped query data
 
-Return `409 Conflict` when `rows_affected()` is zero, and require
-`expected_revision` for update requests.
+Login, registration, account updates, and logout change local authentication
+state but never clear the shared React Query client:
 
-Resolution comment: menu item updates now require `expected_revision` and the
-SQL `UPDATE` includes `WHERE id = ? AND revision = ?`. A zero-row update
-returns `409 Conflict` with the latest menu item and submitted payload.
+- `frontend/src/App.tsx:49`
+- `frontend/src/utils/user.ts:35`
+- `frontend/src/main.tsx:8`
 
-### P1 - Mock data is included in production application flows
+Permission-sensitive query keys such as `['gatherings']` and
+`['gathering', inviteCode]` do not include the current user ID. On a shared
+browser, a newly logged-in user can receive the previous user's cached data
+while refetching. If the new fetch fails, stale data may remain available to
+components that continue reading `query.data`.
 
-The gathering page starts with mock menu items and restores them when API
-loading fails:
+Clear or remove permission-sensitive queries whenever the authenticated user
+changes. Including the user ID in user-scoped query keys provides an additional
+isolation boundary.
 
-- `frontend/src/pages/GatheringPage.tsx:107`
-- `frontend/src/pages/GatheringPage.tsx:232`
+### P2 - Archived gatherings can be changed into active or locked gatherings
 
-When no gathering or participant is available, menu edits are saved only in
-local React state:
+The deadline update always assigns either `active` or `locked`, regardless of
+the current status:
 
-- `frontend/src/pages/GatheringPage.tsx:440`
+- `backend/src/services/gathering_service/gatherings.rs:278`
 
-The administrator menu list always appends a fake `mockdata` gathering:
+The lock operation also overwrites the current status without restricting it to
+an active gathering:
 
-- `frontend/src/pages/MenusPage.tsx:20`
-- `frontend/src/pages/MenusPage.tsx:70`
+- `backend/src/services/gathering_service/locking.rs:22`
 
-Authentication failures, missing invitations, and backend outages can therefore
-look like a working application. Remove runtime mock fallbacks and render
-explicit loading, not-found, forbidden, and service-error states.
+An administrator or claimed Host can therefore use a known gathering ID to
+accidentally resurrect an archived gathering or convert it to `locked`.
 
-Resolution comment: the menu workspace no longer initializes/restores mock menu
-items on API failure, local-only menu edits were removed, and the menu list no
-longer appends the fake `mockdata` gathering. The UI now shows explicit load
-errors/empty states. Remaining polish: split forbidden/not-found/service-error
-copy into more specific user-facing states.
+Define allowed state transitions explicitly. Add the expected current status
+to mutation SQL `WHERE` clauses and return `409 Conflict` for invalid
+transitions. Restoration, if required, should be a separate operation.
 
-### P1 - Administrators cannot use the menu workspace
+### P2 - Participant creation is not concurrency-safe
 
-The backend intentionally returns no participant when an administrator joins:
+Participant creation checks for an existing `(gathering_id, user_id)` and then
+performs a separate insert:
 
-- `backend/src/routes/gatherings.rs:149`
+- `backend/src/services/auth_service.rs:321`
+- `backend/src/services/auth_service.rs:364`
 
-The frontend interprets a missing participant as requiring the join modal and
-hides the menu:
+The database has an index but no unique constraint on that pair:
 
-- `frontend/src/pages/GatheringPage.tsx:529`
-- `frontend/src/pages/GatheringPage.tsx:591`
+- `backend/migrations/0004_auth.sql:22`
 
-Submitting that modal then throws because administrators cannot become
-participants:
+Concurrent join or registration requests can create duplicate participants,
+duplicate join logs, and incorrect participant counts. The unbound
+display-name claim is also a check-then-update operation and can be raced by
+multiple users.
 
-- `frontend/src/pages/GatheringPage.tsx:321`
+Add a unique constraint on `(gathering_id, user_id)` for non-null users and use
+an atomic upsert or transaction. Remove display-name role claims as described
+in the P0 finding.
 
-This conflicts with administrator menu links in the host dashboard and menu
-list. Either provide administrators with a read/manage mode that does not need
-a participant, or create a clearly modeled administrator participant when menu
-editing is intended.
+### P2 - Multi-step writes do not use transactions
 
-Resolution comment: administrators can now open the menu workspace without
-being forced through the join modal. Admins remain read-only for dish editing
-because menu item mutations are still participant-authored. Management actions
-remain available through host/on-track flows.
+The following operations perform related writes independently:
 
-### P2 - Dish recommendation permissions conflict with the editor UI
+- Gathering, Host participant, and creation activity:
+  `backend/src/services/gathering_service/gatherings.rs:43`
+- User, participant, and session creation:
+  `backend/src/services/auth_service.rs:85`
+- User and participant account updates:
+  `backend/src/services/auth_service.rs:170`
+- Menu item update, audit logs, and participant activity:
+  `backend/src/services/gathering_service/menu_items.rs:165`
+- Uploaded file, photo row, and upload activity:
+  `backend/src/services/gathering_service/photos.rs:112`
 
-The editor lets a participant select any gathering participant as the Chef.
-The recommendation endpoint only permits a user to query their own display
-name, unless the user is an administrator:
+A later failure can leave partial records, missing audit entries, or orphaned
+files. Use SQL transactions for related database changes. For uploads, remove
+the new file when the database transaction fails.
 
-- `backend/src/routes/chefs.rs:33`
-- `frontend/src/pages/GatheringPage.tsx:285`
+### P2 - Review and Host pages do not render load failures correctly
 
-Selecting another Chef silently produces an empty recommendation list. Align
-the API authorization rule with the product behavior, preferably by querying
-recommendations through an immutable participant or user ID.
+`ReviewPage` does not branch on loading or error states. When the gathering
+request fails, it renders an apparently valid empty review with photo upload
+controls:
 
-Resolution comment: the recommendation endpoint now allows any authenticated
-user to query Chef recommendations, matching the editor's ability to choose
-another Chef. Remaining hardening: replace the display-name route with an
-immutable user/participant identifier once the product has a stable Chef
-identity selector.
+- `frontend/src/pages/ReviewPage.tsx:25`
+- `frontend/src/pages/ReviewPage.tsx:152`
 
-### P2 - Multi-step mutations are not transactional
+`HostDashboardPage` similarly renders the normal dashboard and labels a missing
+gathering as `Active`:
 
-Several operations perform related writes independently:
+- `frontend/src/pages/HostDashboardPage.tsx:202`
+- `frontend/src/pages/HostDashboardPage.tsx:380`
 
-- Gathering, host participant, and creation activity:
-  `backend/src/services/gathering_service/gatherings.rs:42`
-- User registration, participant creation, and session creation:
-  `backend/src/services/auth_service.rs:82`
-- User and participant display-name updates:
-  `backend/src/services/auth_service.rs:166`
-- Menu item changes, activity logs, and participant activity:
-  `backend/src/services/gathering_service/menu_items.rs:156`
-- Uploaded file, photo row, and activity log:
-  `backend/src/services/gathering_service/photos.rs:102`
+Add explicit loading, forbidden, not-found, and service-error views before
+rendering either operational page.
 
-A failure in a later step can leave partial records, missing audit logs, or
-orphaned files. Use SQL transactions for database mutations. For uploads,
-remove the newly written file when the database transaction fails.
+### P2 - Photo upload policy and image validation remain incomplete
 
-Resolution comment: not fully addressed in this pass. The riskiest upload path
-now validates image content before writing and binds uploads to an authenticated
-participant, but the broader transaction refactor remains open.
+The upload service verifies participant membership but does not require the
+gathering to be locked:
 
-### P2 - Photo uploads do not validate actual image content
+- `backend/src/services/gathering_service/photos.rs:40`
 
-The upload implementation trusts the file extension and reads the complete
-field into memory:
+Participants can upload photos during active menu editing by calling the API
+directly, even though the documented workflow presents photos as a post-event
+feature.
 
-- `backend/src/services/gathering_service/photos.rs:69`
-- `backend/src/services/gathering_service/photos.rs:85`
+Image validation only checks a few signature bytes. The API test's accepted
+"PNG" contains a PNG header followed by arbitrary text and cannot be decoded as
+an image:
 
-The API test successfully uploads `fake-image-bytes` as a PNG:
+- `backend/src/services/gathering_service/photos.rs:160`
+- `backend/tests/api.rs:656`
 
-- `backend/tests/api.rs:604`
+Enforce the intended gathering state in the backend. Fully decode accepted
+images and enforce pixel dimensions in addition to the existing 8 MiB limit.
 
-Validate content type and image signatures, decode images before accepting
-them, enforce explicit byte and dimension limits, and reject unsupported
-formats.
+### P2 - Realtime authentication and event delivery are not isolated
 
-Resolution comment: uploads now enforce an 8 MiB byte limit, validate common
-image signatures, and reject extension/content mismatches. API coverage now
-asserts fake PNG bytes are rejected. Remaining hardening: fully decode images
-and enforce dimensions before deployment.
-
-### P2 - WebSocket bearer tokens are placed in URLs
-
-The frontend sends the session token as a WebSocket query parameter:
+The frontend places the bearer token in the WebSocket URL:
 
 - `frontend/src/hooks/useRealtimeRefresh.ts:16`
 
-The backend accepts the token from that query parameter:
+The backend authenticates that query token and subscribes every authenticated
+socket to the same broadcast receiver:
 
 - `backend/src/routes/realtime.rs:21`
+- `backend/src/routes/realtime.rs:38`
 
-URL query values can appear in request, proxy, and tracing logs. In addition,
-every authenticated socket subscribes to the same broadcast channel and
-receives gathering IDs for gatherings the user may not be able to access.
+Tokens may appear in request, tracing, or proxy logs. Every logged-in user also
+receives gathering IDs for unrelated refresh events.
 
-Prefer an authenticated cookie or a deliberately selected WebSocket
-authentication mechanism, and filter subscriptions/events by the gatherings
-available to the authenticated user.
+Use an authentication mechanism that does not expose the bearer token in the
+URL, and filter subscriptions or outbound events by the gatherings visible to
+the authenticated user.
 
-Resolution comment: not addressed in this pass. This remains a backlog item
-because it needs a slightly larger realtime subscription redesign.
+### P3 - The menu list performs redundant N+1 participant requests
 
-### P3 - The project quality gate does not include all available checks
+The backend already returns only the gatherings available to a regular user.
+The frontend then requests the participant list for every returned gathering
+and filters again by display name:
 
-`scripts/check.sh` runs Rust formatting, checking, tests, and the frontend
-production build, but does not run ESLint, Clippy, or Playwright:
+- `frontend/src/pages/MenusPage.tsx:28`
+- `frontend/src/pages/MenusPage.tsx:34`
 
-- `scripts/check.sh:6`
+This adds one request per gathering and can hide a valid menu when one
+participant request fails. Use the backend response directly and remove the
+display-name filtering layer.
 
-As a result, it can print `All checks passed` while linting or stricter Rust
-checks fail. Add the missing checks to the script or define separate CI jobs
-whose required status is visible.
+### P3 - Route-level role and not-found handling is incomplete
 
-Resolution comment: `scripts/check.sh` now includes `cargo clippy`, `npm run
-lint`, and Playwright e2e in addition to the previous format/build/test checks.
+The root creation route is protected only by authentication, so a non-admin can
+open the creation form even though the backend will reject submission:
+
+- `frontend/src/App.tsx:149`
+
+There is also no catch-all route, leaving unknown paths blank. Add an admin role
+guard for the creation page and a not-found route.
+
+## Fixed Since The Previous Review
+
+The current version has addressed these earlier findings:
+
+- Editable `suite-admin` display names no longer grant administrator access.
+- Menu revision updates require `expected_revision` and update atomically.
+- Runtime mock menu fallbacks were removed from production flows.
+- Administrators can open menu workspaces in an explicit read-only mode.
+- Cross-Chef recommendation selection no longer fails silently with `403`.
+- Uploads now have an 8 MiB limit and basic signature/extension checks.
+- `scripts/check.sh` includes formatting, Clippy, tests, lint, build, and E2E.
+
+The Host identity finding above remains open because the participant claim path
+still transfers an unbound `host` role based on display-name equality.
 
 ## Verification Results
 
-The following checks were run during this review:
+The following checks were run against revision `40f0010`:
 
 | Check | Result |
 | --- | --- |
 | `cargo fmt --all --check` | Passed |
 | `cargo check` | Passed |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Passed |
 | `cargo test` | Passed: 3 API tests |
+| `npm run lint` | Passed |
+
+## Resolution Notes
+
+The following findings were addressed in the current working revision:
+
+- Host display names no longer claim an unbound `host` participant. New joins
+  always create or reuse a participant bound to the authenticated user, and a
+  partial unique index prevents duplicate bound participants.
+- Recommendations are scoped to gatherings visible to the authenticated user;
+  administrators retain global visibility.
+- Archived gatherings cannot be reopened or locked, and locking an already
+  locked or archived gathering returns `409 Conflict`.
+- Account password changes use Argon2id for newly stored passwords and revoke
+  the target user's other sessions. Legacy hashes remain readable for the
+  existing local database.
+- Photos require a locked gathering and are decoded with dimension limits before
+  they are written to disk. The API tests now use a real PNG fixture.
+- WebSocket connections use one-minute, one-time tickets instead of bearer
+  tokens in the URL, and non-admin events are filtered by participant access.
+- Menu list queries use the authenticated backend response directly. React
+  Query data is cleared when the authenticated user changes, the create route
+  is admin-only, and unknown routes render an explicit not-found page.
+- Review and On Track pages now render explicit loading and unavailable states.
+
+Remaining deployment hardening is intentionally tracked separately: require an
+administrator password through environment configuration in production, add
+login throttling, wrap multi-record writes and upload cleanup in SQL
+transactions, and add concurrent stale-revision/realtime isolation tests.
 | `npm run build` | Passed |
 | `npm run e2e` | Passed: 2 Playwright tests |
-| `npm run lint` | Passed |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Passed |
 
-Follow-up note: `./scripts/check.sh` includes e2e now. In the Codex sandbox it
-may fail while binding local ports; rerunning `npm run e2e` with local-port
-permission passed.
+All existing automated checks pass. They do not currently cover the P0 Host
+claim path or the isolation and concurrency cases listed below.
 
 ## Missing Test Coverage
 
-The existing tests cover sequential stale-revision detection and now enforce
-atomic SQL revision checks, but do not yet include a true concurrent two-writer
-race. They also do not cover:
-
-- Administrator behavior in the menu workspace.
-- API failure and forbidden states without mock-data fallback.
-- Upload dimension limits.
-- Partial-write rollback when a later database or filesystem operation fails.
-- Realtime event isolation between unrelated users and gatherings.
-
-New coverage added after this review:
-
-- Reserved `display_name = "suite-admin"` account update rejection.
-- Invalid image bytes rejection for uploaded photos.
-- Dish recommendation sorting and authenticated cross-Chef recommendation reads.
+- Registering or joining with the Host display name must not grant `host`.
+- Two simultaneous joins by the same user must produce one participant.
+- Two simultaneous claims of an unbound participant must not overwrite
+  ownership.
+- Archived gatherings must reject deadline and lock mutations.
+- Account switching must not expose cached data from the previous account.
+- Recommendation results must not cross gathering access boundaries.
+- Review and Host pages must render 403, 404, and network failures.
+- Uploads must reject signature-only files that cannot be decoded.
+- Active gatherings must enforce the intended photo upload policy.
+- Realtime events must be isolated between unrelated users and gatherings.
+- Transaction rollback must be verified for later-step failures.
 
 ## Recommended Fix Order
 
-1. Replace the interim salted SHA-256 password format with Argon2id/bcrypt and add login rate limiting.
-2. Add database transactions and upload cleanup for multi-step mutations.
-3. Harden WebSocket authentication and event isolation.
-4. Add a durable host ownership model if non-admin host management is required.
-5. Replace display-name Chef recommendation routes with immutable IDs.
-6. Add image decoding and dimension limits.
-7. Add concurrent stale-revision and realtime isolation tests.
+1. Remove display-name Host claims and bind Host ownership securely.
+2. Enforce Argon2id/bcrypt, mandatory administrator configuration, login
+   throttling, and session revocation on password changes.
+3. Scope recommendations to gatherings visible to the authenticated user.
+4. Clear or user-scope frontend query caches when authentication changes.
+5. Enforce gathering state transitions and participant uniqueness.
+6. Add transactions and upload cleanup.
+7. Add explicit Review/Host error states.
+8. Harden image decoding, upload-state rules, and realtime isolation.
+9. Remove redundant menu-list requests and add route guards.
+10. Add the missing regression and concurrency tests.

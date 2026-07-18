@@ -10,6 +10,7 @@ import SettingsPage from './pages/SettingsPage';
 import JoinGatheringPage from './pages/JoinGatheringPage';
 import AuthModal from './components/AuthModal';
 import RequireAuth from './components/RequireAuth';
+import PageCard from './components/PageCard';
 import { getMe, login, register } from './api/auth';
 import type { User } from './types/auth';
 import useRealtimeRefresh from './hooks/useRealtimeRefresh';
@@ -69,6 +70,7 @@ export default function App() {
   useEffect(() => {
     function handleUserChanged(event: Event) {
       const user = event instanceof CustomEvent ? (event.detail as User | null) : null;
+      queryClient.clear();
       setCurrentUser(user);
       setIsCheckingSession(false);
     }
@@ -78,7 +80,7 @@ export default function App() {
     return () => {
       window.removeEventListener(USER_CHANGED_EVENT, handleUserChanged);
     };
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     const token = getAuthToken();
@@ -153,7 +155,7 @@ export default function App() {
                 isAuthenticated={isAuthenticated}
                 isCheckingSession={isCheckingSession}
               >
-                <CreateGatheringPage />
+                {isAdmin ? <CreateGatheringPage /> : <NotFoundPage />}
               </RequireAuth>
             }
           />
@@ -223,6 +225,7 @@ export default function App() {
               </RequireAuth>
             }
           />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
 
@@ -245,5 +248,15 @@ export default function App() {
         />
       ) : null}
     </div>
+  );
+}
+
+function NotFoundPage() {
+  return (
+    <PageCard
+      eyebrow="Page not found"
+      title="We could not find that page"
+      description="Check the URL or return to the menus list."
+    />
   );
 }
