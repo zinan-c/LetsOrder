@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::{
     errors::{AppError, AppResult},
     models::{
-        CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest, Participant,
-        UpdateGatheringRequest, UpdatePhotoRequest, User,
+        ClaimHostRequest, CreateGatheringRequest, CreateMenuItemRequest, JoinGatheringRequest,
+        Participant, UpdateGatheringRequest, UpdatePhotoRequest, User,
     },
     routes::{AppState, RealtimeEvent},
     services::{auth_service, gathering_service},
@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_gathering),
         )
         .route("/{gathering_id}/lock", post(lock_gathering))
+        .route("/{gathering_id}/host/claim", post(claim_host))
         .route("/{gathering_id}/activity-logs", get(list_activity_logs))
         .route("/{gathering_id}/menu-ratings", get(list_menu_ratings))
         .route(
@@ -125,6 +126,20 @@ async fn lock_gathering(
     let gathering = gathering_service::lock_gathering(&state.pool, gathering_id, &user).await?;
     notify_refresh(&state, Some(gathering.id));
     Ok(Json(serde_json::json!({ "gathering": gathering })))
+}
+
+async fn claim_host(
+    State(state): State<AppState>,
+    Path(gathering_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(payload): Json<ClaimHostRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let user = require_user(&state, &headers).await?;
+    let participant =
+        gathering_service::claim_host(&state.pool, gathering_id, &user, &payload.claim_token)
+            .await?;
+    notify_refresh(&state, Some(gathering_id));
+    Ok(Json(serde_json::json!({ "participant": participant })))
 }
 
 async fn join_gathering(

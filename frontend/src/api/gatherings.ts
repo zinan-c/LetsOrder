@@ -53,6 +53,10 @@ export interface JoinGatheringResponse {
   access_token: string;
 }
 
+export interface ClaimHostResponse {
+  participant: Participant;
+}
+
 export function createGathering(payload: CreateGatheringRequest) {
   return apiRequest<CreateGatheringResponse>('/api/gatherings', {
     method: 'POST',
@@ -89,6 +93,16 @@ export function lockGathering(gatheringId: string) {
   return apiRequest<GetGatheringResponse>(`/api/gatherings/${gatheringId}/lock`, {
     method: 'POST',
   });
+}
+
+export function claimHost(gatheringId: string, claimToken: string) {
+  return apiRequest<ClaimHostResponse>(
+    `/api/gatherings/${gatheringId}/host/claim`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ claim_token: claimToken }),
+    },
+  );
 }
 
 export function joinGathering(gatheringId: string, displayName: string) {

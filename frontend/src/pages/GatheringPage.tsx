@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  claimHost,
   joinGathering,
   joinGatheringByInviteCode,
   listParticipants,
@@ -172,11 +173,30 @@ export default function GatheringPage() {
         setCurrentGathering(gathering);
         setGatheringId(gathering.id);
         setLoadError(null);
-        if (joinResponse.participant) {
-          setParticipantId(joinResponse.participant.id);
+        let effectiveParticipant = joinResponse.participant;
+        const hostClaimToken = new URLSearchParams(
+          window.location.hash.replace(/^#/, ''),
+        ).get('host_claim');
+        if (hostClaimToken && getCurrentUser()?.role !== 'admin') {
+          try {
+            effectiveParticipant = (
+              await claimHost(gathering.id, hostClaimToken)
+            ).participant;
+            window.history.replaceState(
+              null,
+              '',
+              `${window.location.pathname}${window.location.search}`,
+            );
+          } catch {
+            effectiveParticipant = joinResponse.participant;
+          }
+        }
+
+        if (effectiveParticipant) {
+          setParticipantId(effectiveParticipant.id);
           localStorage.setItem(
             participantStorageKey(currentInviteCode),
-            joinResponse.participant.id,
+            effectiveParticipant.id,
           );
         } else {
           setParticipantId(null);

@@ -192,6 +192,12 @@ export default function HostDashboardPage() {
     'copy' | 'deadline' | 'lock' | null
   >(null);
   const inviteUrl = `${window.location.origin}/menu/${inviteCode}`;
+  const hostClaimToken = localStorage.getItem(
+    `letsorder:${inviteCode}:access_token`,
+  );
+  const hostClaimUrl = hostClaimToken
+    ? `${inviteUrl}#host_claim=${encodeURIComponent(hostClaimToken)}`
+    : null;
   const isAdmin = authVersion >= 0 && getCurrentUser()?.role === 'admin';
 
   function showButtonFeedback(feedback: 'copy' | 'deadline' | 'lock') {
@@ -304,6 +310,12 @@ export default function HostDashboardPage() {
         <div className="result-panel">
           <p>Invitation URL</p>
           <a href={inviteUrl}>{inviteUrl}</a>
+          {isAdmin && hostClaimUrl ? (
+            <>
+              <p>Host claim URL</p>
+              <a href={hostClaimUrl}>{hostClaimUrl}</a>
+            </>
+          ) : null}
           <div className="action-row">
             <span className="button-feedback-wrap">
               <button type="button" onClick={handleCopyInvite}>

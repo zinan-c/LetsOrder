@@ -1,322 +1,243 @@
 # LetsOrder Code Review
 
-Review date: 2026-07-18
+Review date: 2026-07-21
 
-Reviewed revision: `40f0010`
+Reviewed revision: `a8dd53e`
 
-Scope: all backend, frontend, migrations, scripts, API tests, and Playwright
-tests currently present in the repository.
+Scope: backend, frontend, migrations, scripts, API tests, and Playwright tests
+currently present in the repository.
 
 ## Current Findings
 
-### P0 - A user can claim the Host role by registering with the same display name
+### P0 - Non-admin Host management is no longer usable
 
-Creating a gathering inserts a Host participant without a `user_id`:
+Gathering creation still accepts a `host_name` and returns a Host participant and
+access token, but the participant is now stored with the `participant` role:
 
 - `backend/src/services/gathering_service/gatherings.rs:62`
 
-When a user registers or joins, `ensure_participant_for_user` searches for an
-unbound participant with the same editable display name and assigns that
-participant to the user:
+Registration and joining always create another participant with the
+`participant` role:
 
-- `backend/src/services/auth_service.rs:336`
+- `backend/src/services/auth_service.rs:377`
+- `backend/src/services/auth_service.rs:402`
 
-The claimed participant retains its `host` role. Management authorization now
-correctly checks immutable user membership, but that check consequently trusts
-the role obtained through the unsafe claim:
+Management authorization, however, only permits administrators or a participant
+bound to the authenticated user with the `host` role:
 
 - `backend/src/services/gathering_service/common.rs:121`
 
-Any user who knows the invitation and Host display name can therefore register
-with that name and then lock, reopen, or archive the gathering.
+No current code path creates such a bound Host. The browser stores the returned
+participant ID and access token, but backend management authorization does not
+consume either value. Consequently, a non-admin user can open the Host page but
+cannot change the deadline, lock, or archive the gathering.
 
-Bind the Host participant to a real user when the gathering is created, or
-require a one-time Host claim token. Display-name matching must not transfer an
-existing role. Add a regression test that registers with `host_name` and
-expects participant-level permissions only.
+Restore Host ownership without reintroducing display-name claims. Prefer binding
+the Host to an existing user ID at creation, or issue a single-use Host claim
+token that atomically binds the unbound Host participant. The resulting
+participant must have `role = 'host'` and an immutable `user_id`.
 
-### P1 - Password handling is still unsuitable for a network deployment
+Required regression tests:
 
-If `LETSORDER_ADMIN_PASSWORD` is missing, the server falls back to the publicly
-known `Admin_1234` password:
+- The intended Host can claim and manage the gathering.
+- A different user with the same display name cannot claim Host privileges.
+- A Host claim token can only be consumed once.
+- Ordinary participants receive `403` from Host mutations.
 
-- `backend/src/services/auth_service.rs:647`
+### P1 - Administrator login is not ready for a network deployment
 
-Regular passwords use a single salted SHA-256 operation, which is fast enough
-for efficient offline guessing:
+If `LETSORDER_ADMIN_PASSWORD` is absent, authentication falls back to the known
+`Admin_1234` password:
 
-- `backend/src/services/auth_service.rs:594`
-- `backend/src/services/auth_service.rs:613`
+- `backend/src/services/auth_service.rs:21`
+- `backend/src/services/auth_service.rs:33`
+- `backend/src/services/auth_service.rs:707`
 
-The login endpoint has no attempt throttling or temporary lockout. Password
-updates also leave all existing sessions valid for up to 48 hours.
+The login endpoint also has no attempt throttling or temporary lockout. Argon2 is
+used for new passwords, but successful login with a legacy SHA-256 or FNV hash
+does not upgrade the stored hash:
 
-Require the administrator password at startup, use Argon2id or bcrypt with
-per-password salts, enforce a password policy, rate-limit login attempts, and
-revoke the user's existing sessions after a password reset.
+- `backend/src/services/auth_service.rs:25`
+- `backend/src/services/auth_service.rs:651`
 
-### P1 - Chef recommendations expose history across unrelated gatherings
+Require the administrator password through environment configuration and fail
+startup when it is missing or still set to a known development value. Add
+account/IP-based login throttling with bounded lockout. Rehash legacy passwords
+with Argon2 after successful verification.
 
-The recommendation route allows any authenticated user to query any Chef name:
+Required regression tests:
 
-- `backend/src/routes/chefs.rs:27`
+- Production startup fails without an administrator password.
+- Repeated failed login attempts are throttled.
+- A valid login still succeeds after the throttling window.
+- A successful legacy-password login replaces the stored hash with Argon2.
 
-The query searches all menu items in the database and does not scope results to
-gatherings visible to the caller:
+### P1 - WebSocket tickets are not consumed atomically
 
-- `backend/src/services/gathering_service/recommendations.rs:16`
+Ticket consumption performs a `SELECT` followed by a separate `DELETE`:
 
-Results contain dish names, notes, and reference URLs. A user can query common
-display names and retrieve history from unrelated gatherings.
+- `backend/src/services/auth_service.rs:161`
 
-Use an immutable Chef user/participant identifier and pass the authenticated
-user into the service. Restrict candidate gatherings to those shared by the
-caller, unless the caller is an administrator.
+Two concurrent WebSocket handshakes can read the same ticket before either
+request deletes it, allowing a nominally one-time credential to authenticate
+more than once. Expired tickets that are never presented also remain in the
+database indefinitely.
 
-### P1 - Switching accounts does not clear user-scoped query data
+Consume tickets in one atomic database operation, such as
+`DELETE ... RETURNING`, or use a transaction with the appropriate SQLite write
+locking behavior. Reject expired tickets within the same operation and add
+periodic expired-ticket cleanup.
 
-Login, registration, account updates, and logout change local authentication
-state but never clear the shared React Query client:
+Required regression tests:
 
-- `frontend/src/App.tsx:49`
-- `frontend/src/utils/user.ts:35`
-- `frontend/src/main.tsx:8`
+- Two concurrent consumers of one ticket produce exactly one success.
+- An expired ticket is rejected.
+- A consumed ticket cannot be reused.
+- Expired unconsumed tickets are removed by cleanup.
 
-Permission-sensitive query keys such as `['gatherings']` and
-`['gathering', inviteCode]` do not include the current user ID. On a shared
-browser, a newly logged-in user can receive the previous user's cached data
-while refetching. If the new fetch fails, stale data may remain available to
-components that continue reading `query.data`.
+### P1 - Related writes still lack transactions and file compensation
 
-Clear or remove permission-sensitive queries whenever the authenticated user
-changes. Including the user ID in user-scoped query keys provides an additional
-isolation boundary.
+Several operations perform related writes independently:
 
-### P2 - Archived gatherings can be changed into active or locked gatherings
-
-The deadline update always assigns either `active` or `locked`, regardless of
-the current status:
-
-- `backend/src/services/gathering_service/gatherings.rs:278`
-
-The lock operation also overwrites the current status without restricting it to
-an active gathering:
-
-- `backend/src/services/gathering_service/locking.rs:22`
-
-An administrator or claimed Host can therefore use a known gathering ID to
-accidentally resurrect an archived gathering or convert it to `locked`.
-
-Define allowed state transitions explicitly. Add the expected current status
-to mutation SQL `WHERE` clauses and return `409 Conflict` for invalid
-transitions. Restoration, if required, should be a separate operation.
-
-### P2 - Participant creation is not concurrency-safe
-
-Participant creation checks for an existing `(gathering_id, user_id)` and then
-performs a separate insert:
-
-- `backend/src/services/auth_service.rs:321`
-- `backend/src/services/auth_service.rs:364`
-
-The database has an index but no unique constraint on that pair:
-
-- `backend/migrations/0004_auth.sql:22`
-
-Concurrent join or registration requests can create duplicate participants,
-duplicate join logs, and incorrect participant counts. The unbound
-display-name claim is also a check-then-update operation and can be raced by
-multiple users.
-
-Add a unique constraint on `(gathering_id, user_id)` for non-null users and use
-an atomic upsert or transaction. Remove display-name role claims as described
-in the P0 finding.
-
-### P2 - Multi-step writes do not use transactions
-
-The following operations perform related writes independently:
-
-- Gathering, Host participant, and creation activity:
+- Gathering, initial participant, and activity creation:
   `backend/src/services/gathering_service/gatherings.rs:43`
-- User, participant, and session creation:
-  `backend/src/services/auth_service.rs:85`
-- User and participant account updates:
-  `backend/src/services/auth_service.rs:170`
-- Menu item update, audit logs, and participant activity:
+- User, participant, and session registration:
+  `backend/src/services/auth_service.rs:77`
+- User, sessions, and participant account updates:
+  `backend/src/services/auth_service.rs:180`
+- Menu item update, change logs, and participant activity:
   `backend/src/services/gathering_service/menu_items.rs:165`
 - Uploaded file, photo row, and upload activity:
-  `backend/src/services/gathering_service/photos.rs:112`
+  `backend/src/services/gathering_service/photos.rs:128`
 
-A later failure can leave partial records, missing audit entries, or orphaned
-files. Use SQL transactions for related database changes. For uploads, remove
-the new file when the database transaction fails.
+A later failure can leave incomplete records, missing audit entries, inconsistent
+display names, or orphaned files. Wrap related database changes in SQL
+transactions. For uploads, remove the newly written file if the transaction
+fails. Define explicit compensation behavior when deleting a database row
+succeeds but deleting its file fails.
 
-### P2 - Review and Host pages do not render load failures correctly
+Required regression tests should inject a failure into each later step and
+verify database rollback and upload-file cleanup.
 
-`ReviewPage` does not branch on loading or error states. When the gathering
-request fails, it renders an apparently valid empty review with photo upload
-controls:
+### P2 - Realtime refresh does not recover from failures
 
-- `frontend/src/pages/ReviewPage.tsx:25`
-- `frontend/src/pages/ReviewPage.tsx:152`
+The frontend creates one ticket and one WebSocket. Ticket request failures,
+connection failures, and later socket closures are ignored, with no reconnect:
 
-`HostDashboardPage` similarly renders the normal dashboard and labels a missing
-gathering as `Active`:
+- `frontend/src/hooks/useRealtimeRefresh.ts:17`
 
-- `frontend/src/pages/HostDashboardPage.tsx:202`
-- `frontend/src/pages/HostDashboardPage.tsx:380`
+The backend loop exits on any broadcast receive error. In particular, a
+`Lagged` result caused by a burst larger than the broadcast buffer closes the
+connection:
 
-Add explicit loading, forbidden, not-found, and service-error views before
-rendering either operational page.
+- `backend/src/routes/realtime.rs:41`
+- `backend/src/main.rs:21`
 
-### P2 - Photo upload policy and image validation remain incomplete
+Add bounded exponential-backoff reconnection that requests a fresh ticket for
+each attempt. Handle broadcast lag by continuing after recording the skipped
+event count, and reserve connection termination for closed channels or socket
+errors.
 
-The upload service verifies participant membership but does not require the
-gathering to be locked:
+Required tests should cover initial ticket failure, socket closure, reconnect
+with a fresh ticket, broadcast lag, and event isolation between unrelated users.
 
-- `backend/src/services/gathering_service/photos.rs:40`
+### P2 - Security and concurrency fixes lack focused regression coverage
 
-Participants can upload photos during active menu editing by calling the API
-directly, even though the documented workflow presents photos as a post-event
-feature.
+The current suite contains three backend API tests and two Playwright tests. It
+does not directly cover several recently changed boundaries:
 
-Image validation only checks a few signature bytes. The API test's accepted
-"PNG" contains a PNG header followed by arbitrary text and cannot be decoded as
-an image:
+- Host ownership and Host display-name impersonation.
+- Concurrent participant joins.
+- WebSocket ticket single-use behavior and gathering isolation.
+- Archived gathering mutation rejection.
+- Recommendation isolation across unrelated gatherings.
+- React Query cache isolation after switching accounts.
+- Review and Host page behavior for `403`, `404`, and network failures.
+- Transaction rollback and upload-file cleanup.
 
-- `backend/src/services/gathering_service/photos.rs:160`
-- `backend/tests/api.rs:656`
+Add focused backend integration tests first, then browser tests for the
+user-visible account-switching, Host, and realtime-reconnect flows.
 
-Enforce the intended gathering state in the backend. Fully decode accepted
-images and enforce pixel dimensions in addition to the existing 8 MiB limit.
+### P3 - Username allocation has a check-then-insert race
 
-### P2 - Realtime authentication and event delivery are not isolated
+Registration searches for an available username and inserts the user in a later
+operation:
 
-The frontend places the bearer token in the WebSocket URL:
+- `backend/src/services/auth_service.rs:84`
+- `backend/src/services/auth_service.rs:594`
 
-- `frontend/src/hooks/useRealtimeRefresh.ts:16`
+Concurrent registrations with the same display name can choose the same
+candidate. One request then fails on the unique username constraint instead of
+retrying with the next suffix. Treat the database constraint as authoritative
+and retry allocation on a username conflict, preferably within the registration
+transaction.
 
-The backend authenticates that query token and subscribes every authenticated
-socket to the same broadcast receiver:
+### P3 - Deployment boundaries remain permissive
 
-- `backend/src/routes/realtime.rs:21`
-- `backend/src/routes/realtime.rs:38`
+The server applies permissive CORS to every route:
 
-Tokens may appear in request, tracing, or proxy logs. Every logged-in user also
-receives gathering IDs for unrelated refresh events.
+- `backend/src/main.rs:24`
 
-Use an authentication mechanism that does not expose the bearer token in the
-URL, and filter subscriptions or outbound events by the gatherings visible to
-the authenticated user.
+Restrict allowed origins, headers, and methods through deployment configuration.
+Also decide whether `/resources/uploads/*` is intentionally public. If photos
+are private gathering data, serving the directory directly bypasses gathering
+authorization:
 
-### P3 - The menu list performs redundant N+1 participant requests
-
-The backend already returns only the gatherings available to a regular user.
-The frontend then requests the participant list for every returned gathering
-and filters again by display name:
-
-- `frontend/src/pages/MenusPage.tsx:28`
-- `frontend/src/pages/MenusPage.tsx:34`
-
-This adds one request per gathering and can hide a valid menu when one
-participant request fails. Use the backend response directly and remove the
-display-name filtering layer.
-
-### P3 - Route-level role and not-found handling is incomplete
-
-The root creation route is protected only by authentication, so a non-admin can
-open the creation form even though the backend will reject submission:
-
-- `frontend/src/App.tsx:149`
-
-There is also no catch-all route, leaving unknown paths blank. Add an admin role
-guard for the creation page and a not-found route.
-
-## Fixed Since The Previous Review
-
-The current version has addressed these earlier findings:
-
-- Editable `suite-admin` display names no longer grant administrator access.
-- Menu revision updates require `expected_revision` and update atomically.
-- Runtime mock menu fallbacks were removed from production flows.
-- Administrators can open menu workspaces in an explicit read-only mode.
-- Cross-Chef recommendation selection no longer fails silently with `403`.
-- Uploads now have an 8 MiB limit and basic signature/extension checks.
-- `scripts/check.sh` includes formatting, Clippy, tests, lint, build, and E2E.
-
-The Host identity finding above remains open because the participant claim path
-still transfers an unbound `host` role based on display-name equality.
-
-## Verification Results
-
-The following checks were run against revision `40f0010`:
-
-| Check | Result |
-| --- | --- |
-| `cargo fmt --all --check` | Passed |
-| `cargo check` | Passed |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Passed |
-| `cargo test` | Passed: 3 API tests |
-| `npm run lint` | Passed |
-
-## Resolution Notes
-
-The following findings were addressed in the current working revision:
-
-- Host display names no longer claim an unbound `host` participant. New joins
-  always create or reuse a participant bound to the authenticated user, and a
-  partial unique index prevents duplicate bound participants.
-- Recommendations are scoped to gatherings visible to the authenticated user;
-  administrators retain global visibility.
-- Archived gatherings cannot be reopened or locked, and locking an already
-  locked or archived gathering returns `409 Conflict`.
-- Account password changes use Argon2id for newly stored passwords and revoke
-  the target user's other sessions. Legacy hashes remain readable for the
-  existing local database.
-- Photos require a locked gathering and are decoded with dimension limits before
-  they are written to disk. The API tests now use a real PNG fixture.
-- WebSocket connections use one-minute, one-time tickets instead of bearer
-  tokens in the URL, and non-admin events are filtered by participant access.
-- Menu list queries use the authenticated backend response directly. React
-  Query data is cleared when the authenticated user changes, the create route
-  is admin-only, and unknown routes render an explicit not-found page.
-- Review and On Track pages now render explicit loading and unavailable states.
-
-Remaining deployment hardening is intentionally tracked separately: require an
-administrator password through environment configuration in production, add
-login throttling, wrap multi-record writes and upload cleanup in SQL
-transactions, and add concurrent stale-revision/realtime isolation tests.
-| `npm run build` | Passed |
-| `npm run e2e` | Passed: 2 Playwright tests |
-
-All existing automated checks pass. They do not currently cover the P0 Host
-claim path or the isolation and concurrency cases listed below.
-
-## Missing Test Coverage
-
-- Registering or joining with the Host display name must not grant `host`.
-- Two simultaneous joins by the same user must produce one participant.
-- Two simultaneous claims of an unbound participant must not overwrite
-  ownership.
-- Archived gatherings must reject deadline and lock mutations.
-- Account switching must not expose cached data from the previous account.
-- Recommendation results must not cross gathering access boundaries.
-- Review and Host pages must render 403, 404, and network failures.
-- Uploads must reject signature-only files that cannot be decoded.
-- Active gatherings must enforce the intended photo upload policy.
-- Realtime events must be isolated between unrelated users and gatherings.
-- Transaction rollback must be verified for later-step failures.
+- `backend/src/routes/mod.rs:40`
 
 ## Recommended Fix Order
 
-1. Remove display-name Host claims and bind Host ownership securely.
-2. Enforce Argon2id/bcrypt, mandatory administrator configuration, login
-   throttling, and session revocation on password changes.
-3. Scope recommendations to gatherings visible to the authenticated user.
-4. Clear or user-scope frontend query caches when authentication changes.
-5. Enforce gathering state transitions and participant uniqueness.
-6. Add transactions and upload cleanup.
-7. Add explicit Review/Host error states.
-8. Harden image decoding, upload-state rules, and realtime isolation.
-9. Remove redundant menu-list requests and add route guards.
-10. Add the missing regression and concurrency tests.
+1. Restore secure Host ownership and management authorization.
+2. Require administrator configuration and add login throttling.
+3. Make WebSocket ticket consumption atomic and clean up expired tickets.
+4. Add transactions and upload-file compensation.
+5. Add focused tests for items 1-4 before further refactoring.
+6. Add realtime reconnect and broadcast-lag recovery.
+7. Add the remaining isolation, failure-state, and browser regression tests.
+8. Make username allocation concurrency-safe.
+9. Restrict production CORS and decide upload-resource visibility.
+
+## Resolved Since Revision `40f0010`
+
+The following previous findings are implemented in revision `a8dd53e` and should
+remain protected by regression tests:
+
+- Display-name matching no longer transfers an unbound Host role.
+- A partial unique index prevents duplicate bound participants for one user and
+  gathering.
+- Chef recommendations are scoped to gatherings visible to the caller.
+- Archived gatherings cannot be reopened or locked.
+- New and changed passwords use Argon2, and password changes revoke other
+  sessions.
+- Photo uploads require a locked gathering and fully decode images with dimension
+  limits.
+- WebSocket URLs use short-lived tickets instead of bearer session tokens, and
+  non-admin events are filtered by gathering membership.
+- Account changes clear React Query data, menu-list N+1 requests were removed,
+  the creation route is admin-only, and unknown routes render a not-found page.
+- Review and Host pages render explicit loading and unavailable states.
+
+## Verification Results
+
+The following checks were run against revision `a8dd53e` on 2026-07-21:
+
+| Check | Result |
+| --- | --- |
+| `cargo test` | Passed: 3 API tests |
+| `npm run lint` | Passed |
+| `npm run build` | Passed |
+
+These passing checks do not cover the P0 Host regression or the concurrency,
+rollback, and realtime recovery cases listed above.
+
+## Execution Status
+
+### Host ownership — implemented, pending local commit
+
+Host creation now stores a hashed one-time claim token and retains the Host
+role. An authenticated user can consume the token through
+`POST /api/gatherings/:id/host/claim`; if registration already created a
+participant, the claim atomically upgrades that participant and consumes the
+unbound Host record without transferring the role by display name. Reuse and
+same-name impersonation are rejected. Frontend Host claim URLs use a URL
+fragment so the token is not sent as an HTTP request parameter.

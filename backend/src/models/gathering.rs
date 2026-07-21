@@ -71,6 +71,11 @@ pub struct Participant {
 #[derive(Debug, Deserialize)]
 pub struct JoinGatheringRequest {}
 
+#[derive(Debug, Deserialize)]
+pub struct ClaimHostRequest {
+    pub claim_token: String,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct MenuItem {
     pub id: Uuid,

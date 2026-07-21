@@ -1,4 +1,5 @@
 use chrono::Utc;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -64,13 +65,13 @@ pub async fn create_gathering(
         INSERT INTO participants (
             id, gathering_id, display_name, role, access_token_hash, joined_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, 'participant', ?, ?, ?, ?)
+        VALUES (?, ?, ?, 'host', ?, ?, ?, ?)
         "#,
     )
     .bind(host_id.to_string())
     .bind(gathering_id.to_string())
     .bind(payload.host_name.trim())
-    .bind(&access_token)
+    .bind(hash_host_claim_token(&access_token))
     .bind(now)
     .bind(now)
     .bind(now)
@@ -96,6 +97,108 @@ pub async fn create_gathering(
         host,
         access_token,
     })
+}
+
+pub async fn claim_host(
+    pool: &DbPool,
+    gathering_id: Uuid,
+    user: &User,
+    claim_token: &str,
+) -> AppResult<Participant> {
+    if user.role == "admin" || claim_token.trim().is_empty() {
+        return Err(AppError::Forbidden);
+    }
+
+    let mut transaction = pool.begin().await?;
+    let host_row: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT id
+        FROM participants
+        WHERE gathering_id = ?
+          AND role = 'host'
+          AND user_id IS NULL
+          AND access_token_hash = ?
+        "#,
+    )
+    .bind(gathering_id.to_string())
+    .bind(hash_host_claim_token(claim_token))
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some((host_id,)) = host_row else {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "host claim token is invalid or already used"
+        })));
+    };
+
+    let existing_participant: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM participants WHERE gathering_id = ? AND user_id = ?")
+            .bind(gathering_id.to_string())
+            .bind(user.id.to_string())
+            .fetch_optional(&mut *transaction)
+            .await?;
+
+    if let Some((participant_id,)) = existing_participant {
+        sqlx::query(
+            "UPDATE participants SET role = 'participant', access_token_hash = '', updated_at = ? WHERE id = ?",
+        )
+            .bind(Utc::now())
+            .bind(&host_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "UPDATE participants SET role = 'host', display_name = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(&user.display_name)
+        .bind(Utc::now())
+        .bind(&participant_id)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        return get_participant_by_id(
+            pool,
+            Uuid::parse_str(&participant_id).map_err(|error| {
+                AppError::Validation(format!("invalid participant id: {error}"))
+            })?,
+        )
+        .await;
+    }
+
+    let result = sqlx::query(
+        r#"
+        UPDATE participants
+        SET user_id = ?, display_name = ?, updated_at = ?
+        WHERE gathering_id = ?
+          AND role = 'host'
+          AND user_id IS NULL
+          AND access_token_hash = ?
+        "#,
+    )
+    .bind(user.id.to_string())
+    .bind(&user.display_name)
+    .bind(Utc::now())
+    .bind(gathering_id.to_string())
+    .bind(hash_host_claim_token(claim_token))
+    .execute(&mut *transaction)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::Conflict(serde_json::json!({
+            "error": "host claim token is invalid or already used"
+        })));
+    }
+
+    transaction.commit().await?;
+
+    list_participants(pool, gathering_id)
+        .await?
+        .into_iter()
+        .find(|participant| participant.user_id == Some(user.id))
+        .ok_or(AppError::NotFound)
+}
+
+fn hash_host_claim_token(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub async fn get_gathering_by_invite_code(

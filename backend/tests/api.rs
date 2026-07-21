@@ -128,7 +128,9 @@ async fn create_gathering(app: &Router, admin_token: &str, title: &str, expires_
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    body["gathering"].clone()
+    let mut gathering = body["gathering"].clone();
+    gathering["access_token"] = body["access_token"].clone();
+    gathering
 }
 
 async fn register_user(app: &Router, display_name: &str, gathering_id: &str) -> Value {
@@ -791,4 +793,67 @@ async fn scheduled_locking_only_locks_oldest_unlocked_gatherings() {
 
     assert_eq!(locked_count.0, 10);
     assert_eq!(unlocked_count.0, 2);
+}
+
+#[tokio::test]
+async fn host_claim_is_single_use_and_bound_to_authenticated_user() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let gathering = create_gathering(
+        &app,
+        &admin_token,
+        "Host claim test",
+        "2099-07-06T12:00:00Z",
+    )
+    .await;
+    let gathering_id = gathering["id"].as_str().expect("gathering id");
+    let claim_token = gathering["access_token"].as_str().expect("claim token");
+
+    let host_user = register_user(&app, "Host Person", gathering_id).await;
+    let host_token = host_user["token"].as_str().expect("host token");
+    let (claim_status, claim_body) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/host/claim"),
+        Some(host_token),
+        json!({ "claim_token": claim_token }),
+    )
+    .await;
+    assert_eq!(claim_status, StatusCode::OK);
+    assert_eq!(claim_body["participant"]["role"], "host");
+    assert_eq!(
+        claim_body["participant"]["user_id"],
+        host_user["user"]["id"]
+    );
+
+    let (reused_status, _) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/host/claim"),
+        Some(host_token),
+        json!({ "claim_token": claim_token }),
+    )
+    .await;
+    assert_eq!(reused_status, StatusCode::CONFLICT);
+
+    let other_user = register_user(&app, "Host Person", gathering_id).await;
+    let other_token = other_user["token"].as_str().expect("other token");
+    let (other_claim_status, _) = request_json(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/host/claim"),
+        Some(other_token),
+        json!({ "claim_token": claim_token }),
+    )
+    .await;
+    assert_eq!(other_claim_status, StatusCode::CONFLICT);
+
+    let (lock_status, _) = request_empty(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/lock"),
+        Some(host_token),
+    )
+    .await;
+    assert_eq!(lock_status, StatusCode::OK);
 }
