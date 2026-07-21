@@ -21,6 +21,11 @@ type Gathering = {
   title: string;
 };
 
+type CreatedGathering = {
+  gathering: Gathering;
+  access_token: string;
+};
+
 type MenuItem = {
   id: string;
   revision: number;
@@ -48,6 +53,23 @@ async function createGathering(request: APIRequestContext, adminToken: string) {
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
   return body.gathering as Gathering;
+}
+
+async function createGatheringWithHostClaim(
+  request: APIRequestContext,
+  adminToken: string,
+) {
+  const response = await request.post('/api/gatherings', {
+    headers: { Authorization: `Bearer ${adminToken}` },
+    data: {
+      title: `E2E Host Claim ${Date.now()}`,
+      description: 'E2E gathering for host claim tests',
+      host_name: 'E2E Host Claimant',
+      expires_at: '2099-07-14T12:00:00Z',
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as CreatedGathering;
 }
 
 async function registerUser(
@@ -136,4 +158,31 @@ test('dish editor shows conflict dialog for stale edits', async ({ page, request
 
   await page.getByRole('button', { name: 'Use latest' }).click();
   await expect(page.getByText('Loaded the latest dish. Review it, then save again if needed.')).toBeVisible();
+});
+
+test('claimed host can open On Track without exposing admin deadline controls', async ({
+  page,
+  request,
+}) => {
+  const admin = await loginAdmin(request);
+  const created = await createGatheringWithHostClaim(request, admin.token);
+  const host = await registerUser(
+    request,
+    'E2E Host Claimant',
+    created.gathering.id,
+  );
+  const claimResponse = await request.post(
+    `/api/gatherings/${created.gathering.id}/host/claim`,
+    {
+      headers: { Authorization: `Bearer ${host.token}` },
+      data: { claim_token: created.access_token },
+    },
+  );
+  expect(claimResponse.ok()).toBeTruthy();
+
+  await setAuth(page, host);
+  await page.goto(`/host/${created.gathering.invite_code}`);
+  await expect(page.getByRole('heading', { name: 'Gathering on track' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Enter menu' })).toBeVisible();
+  await expect(page.getByText('Menu editing deadline')).not.toBeVisible();
 });

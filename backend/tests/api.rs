@@ -1051,6 +1051,92 @@ async fn legacy_password_hash_is_upgraded_after_successful_login() {
     assert!(stored_hash.starts_with("$argon2"));
 }
 
+#[tokio::test]
+async fn recommendations_exclude_unrelated_gatherings() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let visible = create_gathering(
+        &app,
+        &admin_token,
+        "Visible recommendation gathering",
+        "2099-07-06T12:00:00Z",
+    )
+    .await;
+    let hidden = create_gathering(
+        &app,
+        &admin_token,
+        "Hidden recommendation gathering",
+        "2099-07-07T12:00:00Z",
+    )
+    .await;
+    let visible_id = visible["id"].as_str().expect("visible gathering id");
+    let hidden_id = hidden["id"].as_str().expect("hidden gathering id");
+    let visible_user = register_user(&app, "Shared Chef", visible_id).await;
+    let hidden_user = register_user(&app, "Shared Chef", hidden_id).await;
+
+    for (token, gathering_id, name) in [
+        (
+            visible_user["token"].as_str().expect("visible token"),
+            visible_id,
+            "Visible dish",
+        ),
+        (
+            hidden_user["token"].as_str().expect("hidden token"),
+            hidden_id,
+            "Hidden dish",
+        ),
+    ] {
+        let participant_id = if gathering_id == visible_id {
+            visible_user["participant"]["id"]
+                .as_str()
+                .expect("visible participant")
+        } else {
+            hidden_user["participant"]["id"]
+                .as_str()
+                .expect("hidden participant")
+        };
+        let (status, _) = request_json(
+            &app,
+            Method::POST,
+            &format!("/api/gatherings/{gathering_id}/menu-items"),
+            Some(token),
+            json!({
+                "created_by": participant_id,
+                "name": name,
+                "category": "Main",
+                "quantity": 1,
+                "unit": "plates",
+                "owner_name": "Shared Chef",
+                "status": "done"
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, body) = request_empty(
+        &app,
+        Method::GET,
+        "/api/chefs/Shared%20Chef/dish-recommendations",
+        Some(visible_user["token"].as_str().expect("visible token")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let recommendations = body["recommendations"]
+        .as_array()
+        .expect("recommendations should be an array");
+    assert!(
+        recommendations
+            .iter()
+            .any(|item| item["name"] == "Visible dish")
+    );
+    assert!(
+        !recommendations
+            .iter()
+            .any(|item| item["name"] == "Hidden dish")
+    );
+}
+
 fn legacy_hash(password: &str) -> String {
     let input = format!("letsorder-auth-v1:{password}");
     let mut hash = 0xcbf29ce484222325u64;
