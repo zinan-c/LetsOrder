@@ -1,9 +1,12 @@
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Multipart, Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, header},
+    response::{IntoResponse, Response},
     routing::{get, patch, post},
 };
+use std::path::Path as FilePath;
 use uuid::Uuid;
 
 use crate::{
@@ -46,6 +49,48 @@ pub fn router() -> Router<AppState> {
             "/{gathering_id}/menu-items",
             get(list_menu_items).post(create_menu_item),
         )
+}
+
+pub async fn serve_photo_resource(
+    State(state): State<AppState>,
+    Path(filename): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    if filename.is_empty() || filename.contains('/') || filename.contains('\\') {
+        return Err(AppError::NotFound);
+    }
+
+    let file_url = format!("/resources/uploads/{filename}");
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT gathering_id FROM photos WHERE file_url = ?")
+            .bind(&file_url)
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some((gathering_id,)) = row else {
+        return Err(AppError::NotFound);
+    };
+    let gathering_id = Uuid::parse_str(&gathering_id)
+        .map_err(|error| AppError::Validation(format!("invalid gathering id: {error}")))?;
+    require_gathering_access(&state, &headers, gathering_id).await?;
+
+    let file_path = FilePath::new(&super::resource_dir())
+        .join("uploads")
+        .join(&filename);
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+    let content_type = match FilePath::new(&filename)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "application/octet-stream",
+    };
+
+    Ok(([(header::CONTENT_TYPE, content_type)], Body::from(bytes)).into_response())
 }
 
 async fn list_gatherings(

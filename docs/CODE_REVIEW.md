@@ -272,6 +272,14 @@ bounded exponential backoff after ticket or socket failures. The backend
 continues after `broadcast` lag while logging the skipped event count, and only
 terminates on a closed channel or socket error.
 
+### CORS and photo resource visibility — implemented, pending local commit
+
+CORS now uses configured origins and an explicit method/header allowlist. Mock
+resources remain publicly served, while uploaded photos are served through an
+authenticated route that checks gathering membership before reading the file.
+The API test verifies an authorized participant can read a photo and an
+unrelated user receives `403`.
+
 ### Focused regression coverage — implemented, pending local commit
 
 The backend suite now covers Host claim ownership, one-time WebSocket tickets,

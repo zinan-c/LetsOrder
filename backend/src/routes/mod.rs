@@ -92,12 +92,19 @@ pub fn router(pool: DbPool, realtime_tx: broadcast::Sender<RealtimeEvent>) -> Ro
     Router::new()
         .route("/health", get(health::health_check))
         .route("/api/ws", get(realtime::websocket))
+        .route(
+            "/resources/uploads/{filename}",
+            get(gatherings::serve_photo_resource),
+        )
         .nest("/api/auth", auth::router())
         .nest("/api/chefs", chefs::router())
         .nest("/api/gatherings", gatherings::router())
         .nest("/api/menu-items", gatherings::menu_item_router())
         .nest("/api/photos", gatherings::photo_router())
-        .nest_service("/resources", ServeDir::new(resource_dir()))
+        .nest_service(
+            "/resources/mock",
+            ServeDir::new(Path::new(&resource_dir()).join("mock")),
+        )
         .with_state(state)
 }
 

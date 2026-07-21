@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use axum::http::{HeaderValue, Method, header};
 use letsorder_backend::{config, db, routes, services};
 use tokio::{net::TcpListener, sync::broadcast, time};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -21,8 +22,17 @@ async fn main() -> anyhow::Result<()> {
     let (realtime_tx, _) = broadcast::channel(128);
     spawn_expired_gathering_lock_job(pool.clone(), realtime_tx.clone());
 
+    let allowed_origins = config
+        .allowed_origins
+        .iter()
+        .filter_map(|origin| origin.parse::<HeaderValue>().ok())
+        .collect::<Vec<_>>();
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origins)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
     let app = routes::router(pool, realtime_tx)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));

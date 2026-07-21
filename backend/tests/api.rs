@@ -707,6 +707,16 @@ Content-Type: image/png\r\n\r\n"
     .expect("upload response should be json");
     assert_eq!(upload_body["photo"]["caption"], "Image");
     let photo_id = upload_body["photo"]["id"].as_str().expect("photo id");
+    let photo_url = upload_body["photo"]["file_url"]
+        .as_str()
+        .expect("photo file url");
+    let (photo_access_status, _) =
+        request_empty(&app, Method::GET, photo_url, Some(user_token)).await;
+    assert_eq!(photo_access_status, StatusCode::OK);
+    let other_user = register_user_without_gathering(&app, "Private Photo Viewer").await;
+    let (private_photo_status, _) =
+        request_empty(&app, Method::GET, photo_url, other_user["token"].as_str()).await;
+    assert_eq!(private_photo_status, StatusCode::FORBIDDEN);
 
     let (forbidden_update_status, _) = request_json(
         &app,
