@@ -25,11 +25,7 @@ impl Config {
             let password = std::env::var("LETSORDER_ADMIN_PASSWORD").map_err(|_| {
                 anyhow::anyhow!("LETSORDER_ADMIN_PASSWORD is required in production")
             })?;
-            if password == "Admin_1234" || password.len() < 12 {
-                return Err(anyhow::anyhow!(
-                    "LETSORDER_ADMIN_PASSWORD must be changed and at least 12 characters"
-                ));
-            }
+            validate_production_admin_password(&password)?;
         }
 
         Ok(Self {
@@ -37,5 +33,27 @@ impl Config {
             port,
             allowed_origins,
         })
+    }
+}
+
+fn validate_production_admin_password(password: &str) -> anyhow::Result<()> {
+    if password == "Admin_1234" || password.len() < 12 {
+        return Err(anyhow::anyhow!(
+            "LETSORDER_ADMIN_PASSWORD must be changed and at least 12 characters"
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_production_admin_password;
+
+    #[test]
+    fn production_rejects_default_and_short_admin_passwords() {
+        assert!(validate_production_admin_password("Admin_1234").is_err());
+        assert!(validate_production_admin_password("short-password").is_ok());
+        assert!(validate_production_admin_password("short").is_err());
     }
 }

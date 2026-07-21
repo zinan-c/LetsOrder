@@ -898,6 +898,170 @@ async fn login_attempts_are_rate_limited_per_username() {
 }
 
 #[tokio::test]
+async fn non_admin_cannot_manage_gathering_deadline_or_archive() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let gathering = create_gathering(
+        &app,
+        &admin_token,
+        "Participant permission test",
+        "2099-07-06T12:00:00Z",
+    )
+    .await;
+    let gathering_id = gathering["id"].as_str().expect("gathering id");
+    let user = register_user(&app, "Permission Guest", gathering_id).await;
+    let user_token = user["token"].as_str().expect("user token");
+
+    for (method, path, payload) in [
+        (
+            Method::POST,
+            format!("/api/gatherings/{gathering_id}/lock"),
+            Value::Null,
+        ),
+        (
+            Method::PATCH,
+            format!("/api/gatherings/{gathering_id}"),
+            json!({ "expires_at": "2099-07-07T12:00:00Z" }),
+        ),
+        (
+            Method::DELETE,
+            format!("/api/gatherings/{gathering_id}"),
+            Value::Null,
+        ),
+    ] {
+        let (status, _) = if payload.is_null() {
+            request_empty(&app, method.clone(), &path, Some(user_token)).await
+        } else {
+            request_json(&app, method.clone(), &path, Some(user_token), payload).await
+        };
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn changing_member_password_revokes_previous_sessions() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let user = register_user_without_gathering(&app, "Password Change User").await;
+    let user_id = user["user"]["id"].as_str().expect("user id");
+    let old_token = user["token"].as_str().expect("old token");
+
+    let (update_status, _) = request_json(
+        &app,
+        Method::PATCH,
+        &format!("/api/auth/members/{user_id}"),
+        Some(&admin_token),
+        json!({ "password": "New_password_123" }),
+    )
+    .await;
+    assert_eq!(update_status, StatusCode::OK);
+
+    let (old_session_status, _) =
+        request_empty(&app, Method::GET, "/api/auth/me", Some(old_token)).await;
+    assert_eq!(old_session_status, StatusCode::UNAUTHORIZED);
+
+    let (login_status, login_body) = request_json(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        json!({
+            "username": user["user"]["username"],
+            "password": "New_password_123"
+        }),
+    )
+    .await;
+    assert_eq!(login_status, StatusCode::OK);
+    assert!(login_body["token"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn expired_websocket_ticket_is_rejected_and_cleaned_up() {
+    let (app, pool) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let ticket = "expired-test-ticket";
+    sqlx::query("INSERT INTO websocket_tickets (ticket, user_id, expires_at) VALUES (?, ?, ?)")
+        .bind(ticket)
+        .bind("00000000-0000-0000-0000-000000000001")
+        .bind("2000-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("expired ticket should insert");
+
+    assert!(
+        auth_service::consume_websocket_ticket(&pool, ticket)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        auth_service::cleanup_expired_websocket_tickets(&pool)
+            .await
+            .expect("expired tickets should clean up"),
+        1
+    );
+    let remaining_tickets: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM websocket_tickets WHERE ticket = ?")
+            .bind(ticket)
+            .fetch_one(&pool)
+            .await
+            .expect("ticket count should query");
+    assert_eq!(remaining_tickets.0, 0);
+
+    let (ticket_status, ticket_body) = request_empty(
+        &app,
+        Method::POST,
+        "/api/auth/ws-ticket",
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(ticket_status, StatusCode::OK);
+    assert_ne!(ticket_body["ticket"], ticket);
+}
+
+#[tokio::test]
+async fn legacy_password_hash_is_upgraded_after_successful_login() {
+    let (app, pool) = test_app().await;
+    let user = register_user_without_gathering(&app, "Legacy Password User").await;
+    let user_id = user["user"]["id"].as_str().expect("user id");
+    let username = user["user"]["username"].as_str().expect("username");
+    let password = "legacy-password";
+    let legacy_hash = legacy_hash(password);
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(legacy_hash)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("legacy password should update");
+
+    let (login_status, _) = request_json(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        json!({ "username": username, "password": password }),
+    )
+    .await;
+    assert_eq!(login_status, StatusCode::OK);
+
+    let (stored_hash,): (String,) = sqlx::query_as("SELECT password_hash FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("password hash should query");
+    assert!(stored_hash.starts_with("$argon2"));
+}
+
+fn legacy_hash(password: &str) -> String {
+    let input = format!("letsorder-auth-v1:{password}");
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+#[tokio::test]
 async fn websocket_ticket_is_consumed_once() {
     let (app, pool) = test_app().await;
     let admin_token = login_admin(&app).await;
