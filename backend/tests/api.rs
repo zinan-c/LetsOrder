@@ -985,3 +985,27 @@ async fn concurrent_join_requests_reuse_one_participant() {
     assert_eq!(second.0, StatusCode::OK);
     assert_eq!(first.1["participant"]["id"], second.1["participant"]["id"]);
 }
+
+#[tokio::test]
+async fn concurrent_registrations_allocate_distinct_usernames() {
+    let (app, _) = test_app().await;
+    let (first, second) = tokio::join!(
+        request_json(
+            &app,
+            Method::POST,
+            "/api/auth/register",
+            None,
+            json!({ "display_name": "Same Name" }),
+        ),
+        request_json(
+            &app,
+            Method::POST,
+            "/api/auth/register",
+            None,
+            json!({ "display_name": "Same Name" }),
+        ),
+    );
+    assert_eq!(first.0, StatusCode::OK);
+    assert_eq!(second.0, StatusCode::OK);
+    assert_ne!(first.1["user"]["username"], second.1["user"]["username"]);
+}

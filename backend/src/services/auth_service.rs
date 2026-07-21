@@ -91,10 +91,7 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     }
     validate_display_name(display_name)?;
 
-    let username = unique_username(pool, display_name).await?;
     let generated_password = random_password();
-    let user_id = Uuid::new_v4();
-    let now = Utc::now();
     let gathering_id = if let Some(gathering_id) = payload.gathering_id {
         Some(gathering_id)
     } else if let Some(invite_code) = payload.invite_code.as_deref() {
@@ -102,48 +99,63 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     } else {
         None
     };
-    let mut transaction = pool.begin().await?;
+    loop {
+        let username = unique_username(pool, display_name).await?;
+        let user_id = Uuid::new_v4();
+        let now = Utc::now();
+        let mut transaction = pool.begin().await?;
 
-    sqlx::query(
-        r#"
-        INSERT INTO users (
-            id, username, display_name, password_hash, role, created_at, updated_at
+        let insert_result = sqlx::query(
+            r#"
+            INSERT INTO users (
+                id, username, display_name, password_hash, role, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, 'user', ?, ?)
+            ON CONFLICT(username) DO NOTHING
+            "#,
         )
-        VALUES (?, ?, ?, ?, 'user', ?, ?)
-        "#,
-    )
-    .bind(user_id.to_string())
-    .bind(&username)
-    .bind(display_name)
-    .bind(hash_password(&generated_password))
-    .bind(now)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await?;
+        .bind(user_id.to_string())
+        .bind(&username)
+        .bind(display_name)
+        .bind(hash_password(&generated_password))
+        .bind(now)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
 
-    let participant_id = if let Some(gathering_id) = gathering_id {
-        Some(
-            ensure_participant_for_user_tx(&mut transaction, gathering_id, user_id, display_name)
+        if insert_result.rows_affected() == 0 {
+            continue;
+        }
+
+        let participant_id = if let Some(gathering_id) = gathering_id {
+            Some(
+                ensure_participant_for_user_tx(
+                    &mut transaction,
+                    gathering_id,
+                    user_id,
+                    display_name,
+                )
                 .await?,
-        )
-    } else {
-        None
-    };
-    let token = create_session_tx(&mut transaction, user_id).await?;
-    transaction.commit().await?;
-    let participant = if let Some(participant_id) = participant_id {
-        Some(get_participant_by_id(pool, participant_id).await?)
-    } else {
-        None
-    };
-    let user = get_user_by_id(pool, user_id).await?;
+            )
+        } else {
+            None
+        };
+        let token = create_session_tx(&mut transaction, user_id).await?;
+        transaction.commit().await?;
+        let participant = if let Some(participant_id) = participant_id {
+            Some(get_participant_by_id(pool, participant_id).await?)
+        } else {
+            None
+        };
+        let user = get_user_by_id(pool, user_id).await?;
 
-    Ok(AuthResponse {
-        user,
-        token,
-        generated_password: Some(generated_password),
-        participant,
-    })
+        return Ok(AuthResponse {
+            user,
+            token,
+            generated_password: Some(generated_password.clone()),
+            participant,
+        });
+    }
 }
 
 pub async fn me(pool: &DbPool, token: &str) -> AppResult<User> {

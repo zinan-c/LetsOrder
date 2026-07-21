@@ -278,3 +278,10 @@ The backend suite now covers Host claim ownership, one-time WebSocket tickets,
 login throttling, archived mutation rejection, concurrent participant joins,
 and the existing recommendation/photo/menu permission flows. Concurrent join
 handling includes SQLite busy timeout and bounded retry behavior.
+
+### Username allocation — implemented, pending local commit
+
+Registration now uses `ON CONFLICT(username) DO NOTHING` inside the registration
+transaction and retries username allocation when another request wins the same
+candidate. A concurrent registration test verifies both requests succeed with
+distinct usernames.
