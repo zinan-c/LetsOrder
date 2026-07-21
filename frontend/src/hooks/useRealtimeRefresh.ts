@@ -16,15 +16,53 @@ export default function useRealtimeRefresh(
 
     let socket: WebSocket | null = null;
     let cancelled = false;
-    void createWebSocketTicket().then(({ ticket }) => {
-      if (cancelled) return;
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
-      const wsUrl = new URL('/api/ws', apiBaseUrl || window.location.origin);
-      wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl.searchParams.set('ticket', ticket);
-      socket = new WebSocket(wsUrl);
-      socket.onmessage = handleMessage;
-    }).catch(() => undefined);
+    let reconnectTimer: number | undefined;
+    let reconnectAttempt = 0;
+
+    function scheduleReconnect() {
+      if (cancelled || reconnectTimer !== undefined) {
+        return;
+      }
+
+      const delay = Math.min(1000 * 2 ** reconnectAttempt, 30_000);
+      reconnectAttempt += 1;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        void connect();
+      }, delay);
+    }
+
+    async function connect() {
+      if (cancelled) {
+        return;
+      }
+
+      try {
+        const { ticket } = await createWebSocketTicket();
+        if (cancelled) {
+          return;
+        }
+
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
+        const wsUrl = new URL('/api/ws', apiBaseUrl || window.location.origin);
+        wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl.searchParams.set('ticket', ticket);
+        socket = new WebSocket(wsUrl);
+        socket.onopen = () => {
+          reconnectAttempt = 0;
+        };
+        socket.onmessage = handleMessage;
+        socket.onerror = () => {
+          socket?.close();
+        };
+        socket.onclose = () => {
+          socket = null;
+          scheduleReconnect();
+        };
+      } catch {
+        scheduleReconnect();
+      }
+    }
 
     function handleMessage(event: MessageEvent) {
       try {
@@ -64,6 +102,9 @@ export default function useRealtimeRefresh(
 
     return () => {
       cancelled = true;
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
       socket?.close();
     };
   }, [currentUser, queryClient]);

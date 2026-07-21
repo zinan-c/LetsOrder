@@ -264,3 +264,10 @@ Gathering creation, participant registration/join, account/member updates,
 menu item creation/update, and photo row plus activity-log writes now use SQL
 transactions. Photo writes remove the newly created file when the database
 transaction or file write fails.
+
+### Realtime recovery — implemented, pending local commit
+
+The frontend now requests a fresh ticket for each connection attempt and uses
+bounded exponential backoff after ticket or socket failures. The backend
+continues after `broadcast` lag while logging the skipped event count, and only
+terminates on a closed channel or socket error.

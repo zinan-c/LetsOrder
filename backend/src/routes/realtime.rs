@@ -38,7 +38,16 @@ pub async fn websocket(
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: uuid::Uuid, role: String) {
     let mut receiver = state.realtime_tx.subscribe();
 
-    while let Ok(event) = receiver.recv().await {
+    loop {
+        let event = match receiver.recv().await {
+            Ok(event) => event,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                tracing::warn!(skipped, "websocket receiver lagged; continuing");
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        };
+
         if let Some(gathering_id) = event.gathering_id
             && role != "admin"
         {
