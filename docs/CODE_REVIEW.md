@@ -232,7 +232,7 @@ rollback, and realtime recovery cases listed above.
 
 ## Execution Status
 
-### Host ownership — implemented, pending local commit
+### Host ownership — implemented in `21c0e44`
 
 Host creation now stores a hashed one-time claim token and retains the Host
 role. An authenticated user can consume the token through
@@ -242,7 +242,7 @@ unbound Host record without transferring the role by display name. Reuse and
 same-name impersonation are rejected. Frontend Host claim URLs use a URL
 fragment so the token is not sent as an HTTP request parameter.
 
-### Administrator authentication — implemented, pending local commit
+### Administrator authentication — implemented in `d0d68be`
 
 Production startup now requires `LETSORDER_ADMIN_PASSWORD` through
 `LETSORDER_ENV=production`, rejects the known development password and short
@@ -251,28 +251,28 @@ password hashes to Argon2 after successful login. A focused rate-limit API test
 is included; a production startup test and legacy-hash migration assertion are
 still candidates for the broader test pass.
 
-### WebSocket ticket consumption — implemented, pending local commit
+### WebSocket ticket consumption — implemented in `5eb69c1`
 
 Ticket consumption now uses SQLite `DELETE ... RETURNING` with an expiry guard,
 so only one concurrent consumer can succeed. The ten-minute background job also
 removes expired unconsumed tickets, and an integration test verifies concurrent
 single-use behavior.
 
-### Related writes and upload compensation — implemented, pending local commit
+### Related writes and upload compensation — implemented in `ae741b4`
 
 Gathering creation, participant registration/join, account/member updates,
 menu item creation/update, and photo row plus activity-log writes now use SQL
 transactions. Photo writes remove the newly created file when the database
 transaction or file write fails.
 
-### Realtime recovery — implemented, pending local commit
+### Realtime recovery — implemented in `c299853`
 
 The frontend now requests a fresh ticket for each connection attempt and uses
 bounded exponential backoff after ticket or socket failures. The backend
 continues after `broadcast` lag while logging the skipped event count, and only
 terminates on a closed channel or socket error.
 
-### CORS and photo resource visibility — implemented, pending local commit
+### CORS and photo resource visibility — implemented in `d20d82a`
 
 CORS now uses configured origins and an explicit method/header allowlist. Mock
 resources remain publicly served, while uploaded photos are served through an
@@ -280,14 +280,14 @@ authenticated route that checks gathering membership before reading the file.
 The API test verifies an authorized participant can read a photo and an
 unrelated user receives `403`.
 
-### Focused regression coverage — implemented, pending local commit
+### Focused regression coverage — implemented in `12bb72f`
 
 The backend suite now covers Host claim ownership, one-time WebSocket tickets,
 login throttling, archived mutation rejection, concurrent participant joins,
 and the existing recommendation/photo/menu permission flows. Concurrent join
 handling includes SQLite busy timeout and bounded retry behavior.
 
-### Username allocation — implemented, pending local commit
+### Username allocation — implemented in `9c82e2a`
 
 Registration now uses `ON CONFLICT(username) DO NOTHING` inside the registration
 transaction and retries username allocation when another request wins the same
