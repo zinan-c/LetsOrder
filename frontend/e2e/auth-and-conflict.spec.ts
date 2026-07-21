@@ -186,3 +186,17 @@ test('claimed host can open On Track without exposing admin deadline controls', 
   await expect(page.getByRole('link', { name: 'Enter menu' })).toBeVisible();
   await expect(page.getByText('Menu editing deadline')).not.toBeVisible();
 });
+
+test('authenticated users see a useful error state for an unavailable gathering', async ({
+  page,
+  request,
+}) => {
+  const admin = await loginAdmin(request);
+  await setAuth(page, admin);
+  await page.goto('/host/gathering-that-does-not-exist');
+
+  await expect(page.getByRole('heading', { name: 'Gathering unavailable' })).toBeVisible();
+  await expect(
+    page.getByText('This gathering could not be loaded. Check the invitation or try again later.'),
+  ).toBeVisible();
+});

@@ -10,6 +10,7 @@ use letsorder_backend::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tower::ServiceExt;
+use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 async fn test_app() -> (Router, db::DbPool) {
@@ -1134,6 +1135,64 @@ async fn recommendations_exclude_unrelated_gatherings() {
         !recommendations
             .iter()
             .any(|item| item["name"] == "Hidden dish")
+    );
+}
+
+#[tokio::test]
+async fn cors_preflight_only_allows_configured_origins() {
+    let (app, _) = test_app().await;
+    let cors_app = app.layer(
+        CorsLayer::new()
+            .allow_origin(
+                "http://127.0.0.1:5173"
+                    .parse::<header::HeaderValue>()
+                    .unwrap(),
+            )
+            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+    );
+
+    let allowed_response = cors_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::OPTIONS)
+                .uri("/api/auth/login")
+                .header(header::ORIGIN, "http://127.0.0.1:5173")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type")
+                .body(Body::empty())
+                .expect("allowed preflight should build"),
+        )
+        .await
+        .expect("allowed preflight should complete");
+    assert_eq!(allowed_response.status(), StatusCode::OK);
+    assert_eq!(
+        allowed_response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("http://127.0.0.1:5173")
+    );
+
+    let blocked_response = cors_app
+        .oneshot(
+            Request::builder()
+                .method(Method::OPTIONS)
+                .uri("/api/auth/login")
+                .header(header::ORIGIN, "https://not-allowed.example")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .body(Body::empty())
+                .expect("blocked preflight should build"),
+        )
+        .await
+        .expect("blocked preflight should complete");
+    assert_ne!(
+        blocked_response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://not-allowed.example")
     );
 }
 
