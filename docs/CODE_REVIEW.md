@@ -257,3 +257,10 @@ Ticket consumption now uses SQLite `DELETE ... RETURNING` with an expiry guard,
 so only one concurrent consumer can succeed. The ten-minute background job also
 removes expired unconsumed tickets, and an integration test verifies concurrent
 single-use behavior.
+
+### Related writes and upload compensation — implemented, pending local commit
+
+Gathering creation, participant registration/join, account/member updates,
+menu item creation/update, and photo row plus activity-log writes now use SQL
+transactions. Photo writes remove the newly created file when the database
+transaction or file write fails.

@@ -4,6 +4,7 @@ use argon2::{
 };
 use chrono::{Duration, Utc};
 use sha2::{Digest, Sha256};
+use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -94,6 +95,14 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     let generated_password = random_password();
     let user_id = Uuid::new_v4();
     let now = Utc::now();
+    let gathering_id = if let Some(gathering_id) = payload.gathering_id {
+        Some(gathering_id)
+    } else if let Some(invite_code) = payload.invite_code.as_deref() {
+        Some(gathering_id_by_invite_code(pool, invite_code).await?)
+    } else {
+        None
+    };
+    let mut transaction = pool.begin().await?;
 
     sqlx::query(
         r#"
@@ -109,23 +118,24 @@ pub async fn register(pool: &DbPool, payload: RegisterRequest) -> AppResult<Auth
     .bind(hash_password(&generated_password))
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    let gathering_id = if let Some(gathering_id) = payload.gathering_id {
-        Some(gathering_id)
-    } else if let Some(invite_code) = payload.invite_code.as_deref() {
-        Some(gathering_id_by_invite_code(pool, invite_code).await?)
+    let participant_id = if let Some(gathering_id) = gathering_id {
+        Some(
+            ensure_participant_for_user_tx(&mut transaction, gathering_id, user_id, display_name)
+                .await?,
+        )
     } else {
         None
     };
-
-    let participant = if let Some(gathering_id) = gathering_id {
-        Some(ensure_participant_for_user(pool, gathering_id, user_id).await?)
+    let token = create_session_tx(&mut transaction, user_id).await?;
+    transaction.commit().await?;
+    let participant = if let Some(participant_id) = participant_id {
+        Some(get_participant_by_id(pool, participant_id).await?)
     } else {
         None
     };
-    let token = create_session(pool, user_id).await?;
     let user = get_user_by_id(pool, user_id).await?;
 
     Ok(AuthResponse {
@@ -225,6 +235,7 @@ pub async fn update_account(
         ));
     }
     let now = Utc::now();
+    let mut transaction = pool.begin().await?;
 
     sqlx::query(
         r#"
@@ -239,14 +250,14 @@ pub async fn update_account(
     .bind(password_hash)
     .bind(now)
     .bind(user.id.to_string())
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     if password_changed {
         sqlx::query("DELETE FROM auth_sessions WHERE user_id = ? AND token != ?")
             .bind(user.id.to_string())
             .bind(token)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
     }
 
@@ -260,8 +271,10 @@ pub async fn update_account(
     .bind(display_name)
     .bind(now)
     .bind(user.id.to_string())
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+
+    transaction.commit().await?;
 
     get_user_by_id(pool, user.id).await
 }
@@ -320,6 +333,7 @@ pub async fn update_member(
         ));
     }
     let now = Utc::now();
+    let mut transaction = pool.begin().await?;
 
     sqlx::query(
         r#"
@@ -334,13 +348,13 @@ pub async fn update_member(
     .bind(password_hash)
     .bind(now)
     .bind(user_id.to_string())
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     if password_changed {
         sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
             .bind(user_id.to_string())
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
     }
 
@@ -354,8 +368,10 @@ pub async fn update_member(
     .bind(display_name)
     .bind(now)
     .bind(user_id.to_string())
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+
+    transaction.commit().await?;
 
     get_user_by_id(pool, user_id).await
 }
@@ -400,19 +416,29 @@ pub async fn ensure_participant_for_user(
         return Err(AppError::Forbidden);
     }
 
+    let mut transaction = pool.begin().await?;
+    let participant_id =
+        ensure_participant_for_user_tx(&mut transaction, gathering_id, user_id, &user.display_name)
+            .await?;
+    transaction.commit().await?;
+    get_participant_by_id(pool, participant_id).await
+}
+
+async fn ensure_participant_for_user_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
+    gathering_id: Uuid,
+    user_id: Uuid,
+    display_name: &str,
+) -> AppResult<Uuid> {
     if let Some((participant_id,)) = sqlx::query_as::<_, (String,)>(
-        r#"
-        SELECT id
-        FROM participants
-        WHERE gathering_id = ? AND user_id = ?
-        "#,
+        "SELECT id FROM participants WHERE gathering_id = ? AND user_id = ?",
     )
     .bind(gathering_id.to_string())
     .bind(user_id.to_string())
-    .fetch_optional(pool)
+    .fetch_optional(&mut **transaction)
     .await?
     {
-        return get_participant_by_id(pool, parse_uuid(&participant_id)?).await;
+        return parse_uuid(&participant_id);
     }
 
     let participant_id = Uuid::new_v4();
@@ -428,12 +454,12 @@ pub async fn ensure_participant_for_user(
     .bind(participant_id.to_string())
     .bind(gathering_id.to_string())
     .bind(user_id.to_string())
-    .bind(&user.display_name)
+    .bind(display_name)
     .bind(Uuid::new_v4().to_string())
     .bind(now)
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await?;
 
     if result.rows_affected() == 0 {
@@ -442,9 +468,9 @@ pub async fn ensure_participant_for_user(
         )
         .bind(gathering_id.to_string())
         .bind(user_id.to_string())
-        .fetch_one(pool)
+        .fetch_one(&mut **transaction)
         .await?;
-        return get_participant_by_id(pool, parse_uuid(&existing.0)?).await;
+        return parse_uuid(&existing.0);
     }
 
     sqlx::query(
@@ -460,10 +486,10 @@ pub async fn ensure_participant_for_user(
     .bind(participant_id.to_string())
     .bind(participant_id.to_string())
     .bind(now)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await?;
 
-    get_participant_by_id(pool, participant_id).await
+    Ok(participant_id)
 }
 
 pub async fn participant_for_user(
@@ -493,6 +519,16 @@ pub async fn participant_for_user(
 }
 
 async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
+    let mut transaction = pool.begin().await?;
+    let token = create_session_tx(&mut transaction, user_id).await?;
+    transaction.commit().await?;
+    Ok(token)
+}
+
+async fn create_session_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
+    user_id: Uuid,
+) -> AppResult<String> {
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
     let expires_at = now + Duration::hours(SESSION_TTL_HOURS);
@@ -506,7 +542,7 @@ async fn create_session(pool: &DbPool, user_id: Uuid) -> AppResult<String> {
     .bind(user_id.to_string())
     .bind(now)
     .bind(expires_at)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await?;
 
     Ok(token)

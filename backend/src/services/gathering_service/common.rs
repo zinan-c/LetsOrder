@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use chrono::Utc;
+use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -210,10 +211,42 @@ pub(super) async fn insert_activity_log(
     Ok(())
 }
 
-pub(super) async fn touch_participant_menu_activity(
-    pool: &DbPool,
+pub(super) async fn insert_activity_log_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
+    gathering_id: Uuid,
+    actor_id: Option<Uuid>,
+    action: &str,
+    target_type: &str,
+    target_id: Option<Uuid>,
+    detail: Option<String>,
+) -> AppResult<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO activity_logs (
+            id, gathering_id, actor_id, action, target_type, target_id, detail, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(gathering_id.to_string())
+    .bind(actor_id.map(|id| id.to_string()))
+    .bind(action)
+    .bind(target_type)
+    .bind(target_id.map(|id| id.to_string()))
+    .bind(detail)
+    .bind(Utc::now())
+    .execute(&mut **transaction)
+    .await?;
+
+    Ok(())
+}
+
+pub(super) async fn touch_participant_menu_activity_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
     participant_id: Uuid,
 ) -> AppResult<()> {
+    let now = Utc::now();
     sqlx::query(
         r#"
         UPDATE participants
@@ -221,10 +254,10 @@ pub(super) async fn touch_participant_menu_activity(
         WHERE id = ?
         "#,
     )
-    .bind(Utc::now())
-    .bind(Utc::now())
+    .bind(now)
+    .bind(now)
     .bind(participant_id.to_string())
-    .execute(pool)
+    .execute(&mut **transaction)
     .await?;
 
     Ok(())

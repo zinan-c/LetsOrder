@@ -14,7 +14,7 @@ use crate::{
 
 use super::common::{
     ensure_user_can_manage, get_gathering_by_id, get_participant_by_id, insert_activity_log,
-    sync_expired_gathering, unique_invite_code,
+    insert_activity_log_tx, sync_expired_gathering, unique_invite_code,
 };
 
 pub async fn create_gathering(
@@ -40,6 +40,7 @@ pub async fn create_gathering(
     let host_id = Uuid::new_v4();
     let invite_code = unique_invite_code(pool, &payload.title).await?;
     let access_token = Uuid::new_v4().to_string();
+    let mut transaction = pool.begin().await?;
 
     sqlx::query(
         r#"
@@ -57,7 +58,7 @@ pub async fn create_gathering(
     .bind(payload.expires_at)
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     sqlx::query(
@@ -75,11 +76,11 @@ pub async fn create_gathering(
     .bind(now)
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    insert_activity_log(
-        pool,
+    insert_activity_log_tx(
+        &mut transaction,
         gathering_id,
         Some(host_id),
         "gathering_created",
@@ -88,6 +89,8 @@ pub async fn create_gathering(
         None,
     )
     .await?;
+
+    transaction.commit().await?;
 
     let gathering = get_gathering_by_id(pool, gathering_id).await?;
     let host = get_participant_by_id(pool, host_id).await?;

@@ -14,7 +14,7 @@ use crate::{
 
 use super::common::{
     ensure_participant_in_gathering, ensure_user_is_admin, get_gathering_by_id, get_photo_by_id,
-    insert_activity_log, resource_dir,
+    insert_activity_log, insert_activity_log_tx, resource_dir,
 };
 
 const MAX_PHOTO_BYTES: usize = 8 * 1024 * 1024;
@@ -47,7 +47,10 @@ pub async fn upload_photo(
     uploaded_by: Uuid,
     mut multipart: Multipart,
 ) -> AppResult<Photo> {
-    get_gathering_by_id(pool, gathering_id).await?;
+    let gathering = get_gathering_by_id(pool, gathering_id).await?;
+    if !gathering.is_locked {
+        return Err(AppError::Forbidden);
+    }
     ensure_participant_in_gathering(pool, gathering_id, uploaded_by).await?;
     let mut caption: Option<String> = None;
     let mut file_name: Option<String> = None;
@@ -129,9 +132,12 @@ pub async fn upload_photo(
     let mut file = tokio::fs::File::create(&file_path)
         .await
         .map_err(|error| AppError::Validation(format!("could not create upload file: {error}")))?;
-    file.write_all(&file_bytes)
-        .await
-        .map_err(|error| AppError::Validation(format!("could not write upload file: {error}")))?;
+    if let Err(error) = file.write_all(&file_bytes).await {
+        let _ = tokio::fs::remove_file(&file_path).await;
+        return Err(AppError::Validation(format!(
+            "could not write upload file: {error}"
+        )));
+    }
 
     let file_url = format!("/resources/uploads/{stored_file_name}");
     let caption = caption
@@ -140,6 +146,7 @@ pub async fn upload_photo(
         .filter(|value| !value.is_empty())
         .unwrap_or("Image");
 
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         r#"
         INSERT INTO photos (
@@ -156,11 +163,11 @@ pub async fn upload_photo(
     .bind(caption)
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    insert_activity_log(
-        pool,
+    insert_activity_log_tx(
+        &mut transaction,
         gathering_id,
         Some(uploaded_by),
         "photo_uploaded",
@@ -169,6 +176,11 @@ pub async fn upload_photo(
         Some(serde_json::json!({ "file_url": file_url }).to_string()),
     )
     .await?;
+
+    if let Err(error) = transaction.commit().await {
+        let _ = tokio::fs::remove_file(&file_path).await;
+        return Err(error.into());
+    }
 
     get_photo_by_id(pool, photo_id).await
 }

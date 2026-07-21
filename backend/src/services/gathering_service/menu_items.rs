@@ -1,3 +1,4 @@
+use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -8,7 +9,7 @@ use crate::{
 
 use super::common::{
     ensure_gathering_editable, ensure_participant_in_gathering, get_gathering_by_id,
-    get_menu_item_by_id, insert_activity_log, parse_uuid, touch_participant_menu_activity,
+    get_menu_item_by_id, insert_activity_log_tx, parse_uuid, touch_participant_menu_activity_tx,
 };
 
 struct MenuItemChangeAfter {
@@ -64,6 +65,7 @@ pub async fn create_menu_item(
     validate_menu_status(&status)?;
 
     let now = chrono::Utc::now();
+    let mut transaction = pool.begin().await?;
     let menu_item_id = Uuid::new_v4();
 
     sqlx::query(
@@ -88,11 +90,11 @@ pub async fn create_menu_item(
     .bind(status)
     .bind(now)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    insert_activity_log(
-        pool,
+    insert_activity_log_tx(
+        &mut transaction,
         gathering_id,
         Some(payload.created_by),
         "menu_item_created",
@@ -101,7 +103,9 @@ pub async fn create_menu_item(
         None,
     )
     .await?;
-    touch_participant_menu_activity(pool, payload.created_by).await?;
+    touch_participant_menu_activity_tx(&mut transaction, payload.created_by).await?;
+
+    transaction.commit().await?;
 
     get_menu_item_by_id(pool, menu_item_id).await
 }
@@ -161,6 +165,7 @@ pub async fn update_menu_item(
         .map(|value| value.trim().to_string());
 
     let now = chrono::Utc::now();
+    let mut transaction = pool.begin().await?;
 
     let update_result = sqlx::query(
         r#"
@@ -192,7 +197,7 @@ pub async fn update_menu_item(
     .bind(now)
     .bind(menu_item_id.to_string())
     .bind(expected_revision)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     if update_result.rows_affected() == 0 {
@@ -205,8 +210,8 @@ pub async fn update_menu_item(
         })));
     }
 
-    insert_menu_item_change_logs(
-        pool,
+    insert_menu_item_change_logs_tx(
+        &mut transaction,
         gathering_id,
         payload.updated_by,
         menu_item_id,
@@ -223,7 +228,9 @@ pub async fn update_menu_item(
         },
     )
     .await?;
-    touch_participant_menu_activity(pool, payload.updated_by).await?;
+    touch_participant_menu_activity_tx(&mut transaction, payload.updated_by).await?;
+
+    transaction.commit().await?;
 
     get_menu_item_by_id(pool, menu_item_id).await
 }
@@ -245,8 +252,8 @@ pub async fn menu_item_gathering_id(pool: &DbPool, menu_item_id: Uuid) -> AppRes
         .ok_or(AppError::NotFound)
 }
 
-async fn insert_menu_item_change_logs(
-    pool: &DbPool,
+async fn insert_menu_item_change_logs_tx(
+    transaction: &mut Transaction<'_, Sqlite>,
     gathering_id: Uuid,
     actor_id: Uuid,
     menu_item_id: Uuid,
@@ -255,7 +262,7 @@ async fn insert_menu_item_change_logs(
 ) -> AppResult<()> {
     if before.name != after.name {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -271,7 +278,7 @@ async fn insert_menu_item_change_logs(
 
     if before.category != after.category {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -287,7 +294,7 @@ async fn insert_menu_item_change_logs(
 
     if before.quantity != after.quantity {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -303,7 +310,7 @@ async fn insert_menu_item_change_logs(
 
     if before.unit != after.unit {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -319,7 +326,7 @@ async fn insert_menu_item_change_logs(
 
     if before.owner_name != after.owner_name {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -335,7 +342,7 @@ async fn insert_menu_item_change_logs(
 
     if before.reference_url != after.reference_url {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -351,7 +358,7 @@ async fn insert_menu_item_change_logs(
 
     if before.note != after.note {
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -373,7 +380,7 @@ async fn insert_menu_item_change_logs(
         };
 
         insert_field_change_log(
-            pool,
+            transaction,
             gathering_id,
             actor_id,
             menu_item_id,
@@ -391,14 +398,14 @@ async fn insert_menu_item_change_logs(
 }
 
 async fn insert_field_change_log(
-    pool: &DbPool,
+    transaction: &mut Transaction<'_, Sqlite>,
     gathering_id: Uuid,
     actor_id: Uuid,
     menu_item_id: Uuid,
     change: FieldChangeLog,
 ) -> AppResult<()> {
-    insert_activity_log(
-        pool,
+    insert_activity_log_tx(
+        transaction,
         gathering_id,
         Some(actor_id),
         change.action,
