@@ -271,3 +271,10 @@ The frontend now requests a fresh ticket for each connection attempt and uses
 bounded exponential backoff after ticket or socket failures. The backend
 continues after `broadcast` lag while logging the skipped event count, and only
 terminates on a closed channel or socket error.
+
+### Focused regression coverage — implemented, pending local commit
+
+The backend suite now covers Host claim ownership, one-time WebSocket tickets,
+login throttling, archived mutation rejection, concurrent participant joins,
+and the existing recommendation/photo/menu permission flows. Concurrent join
+handling includes SQLite busy timeout and bounded retry behavior.

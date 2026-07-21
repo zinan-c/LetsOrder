@@ -416,12 +416,43 @@ pub async fn ensure_participant_for_user(
         return Err(AppError::Forbidden);
     }
 
-    let mut transaction = pool.begin().await?;
-    let participant_id =
-        ensure_participant_for_user_tx(&mut transaction, gathering_id, user_id, &user.display_name)
-            .await?;
-    transaction.commit().await?;
+    let mut retries = 0;
+    let participant_id = loop {
+        let mut transaction = pool.begin().await?;
+        match ensure_participant_for_user_tx(
+            &mut transaction,
+            gathering_id,
+            user_id,
+            &user.display_name,
+        )
+        .await
+        {
+            Ok(participant_id) => match transaction.commit().await {
+                Ok(()) => break participant_id,
+                Err(error) if is_retryable_sqlite_lock(&error) => {
+                    if retries >= 2 {
+                        return Err(AppError::Database(error));
+                    }
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                Err(error) => return Err(AppError::Database(error)),
+            },
+            Err(AppError::Database(error)) if is_retryable_sqlite_lock(&error) => {
+                if retries >= 2 {
+                    return Err(AppError::Database(error));
+                }
+                retries += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    };
     get_participant_by_id(pool, participant_id).await
+}
+
+fn is_retryable_sqlite_lock(error: &sqlx::Error) -> bool {
+    error.to_string().contains("database is locked")
 }
 
 async fn ensure_participant_for_user_tx(

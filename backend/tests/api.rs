@@ -906,3 +906,82 @@ async fn websocket_ticket_is_consumed_once() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn archived_gathering_rejects_lock_and_deadline_mutations() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let gathering = create_gathering(
+        &app,
+        &admin_token,
+        "Archived mutation test",
+        "2099-07-06T12:00:00Z",
+    )
+    .await;
+    let gathering_id = gathering["id"].as_str().expect("gathering id");
+
+    let (archive_status, _) = request_empty(
+        &app,
+        Method::DELETE,
+        &format!("/api/gatherings/{gathering_id}"),
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(archive_status, StatusCode::OK);
+
+    let (lock_status, _) = request_empty(
+        &app,
+        Method::POST,
+        &format!("/api/gatherings/{gathering_id}/lock"),
+        Some(&admin_token),
+    )
+    .await;
+    assert_eq!(lock_status, StatusCode::CONFLICT);
+
+    let (deadline_status, _) = request_json(
+        &app,
+        Method::PATCH,
+        &format!("/api/gatherings/{gathering_id}"),
+        Some(&admin_token),
+        json!({ "expires_at": "2099-07-07T12:00:00Z" }),
+    )
+    .await;
+    assert_eq!(deadline_status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn concurrent_join_requests_reuse_one_participant() {
+    let (app, _) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let gathering = create_gathering(
+        &app,
+        &admin_token,
+        "Concurrent join test",
+        "2099-07-06T12:00:00Z",
+    )
+    .await;
+    let gathering_id = gathering["id"].as_str().expect("gathering id");
+    let user = register_user_without_gathering(&app, "Concurrent Guest").await;
+    let user_token = user["token"].as_str().expect("user token");
+    let participants_path = format!("/api/gatherings/{gathering_id}/participants");
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &app,
+            Method::POST,
+            &participants_path,
+            Some(user_token),
+            json!({}),
+        ),
+        request_json(
+            &app,
+            Method::POST,
+            &participants_path,
+            Some(user_token),
+            json!({}),
+        ),
+    );
+    assert_eq!(first.0, StatusCode::OK);
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(first.1["participant"]["id"], second.1["participant"]["id"]);
+}
