@@ -168,22 +168,29 @@ pub async fn create_websocket_ticket(pool: &DbPool, token: &str) -> AppResult<St
 }
 
 pub async fn consume_websocket_ticket(pool: &DbPool, ticket: &str) -> AppResult<User> {
-    let row: Option<(String, chrono::DateTime<Utc>)> =
-        sqlx::query_as("SELECT user_id, expires_at FROM websocket_tickets WHERE ticket = ?")
-            .bind(ticket.trim())
-            .fetch_optional(pool)
-            .await?;
-    sqlx::query("DELETE FROM websocket_tickets WHERE ticket = ?")
-        .bind(ticket.trim())
-        .execute(pool)
-        .await?;
-    let Some((user_id, expires_at)) = row else {
+    let Some((user_id,)) = sqlx::query_as::<_, (String,)>(
+        r#"
+        DELETE FROM websocket_tickets
+        WHERE ticket = ? AND expires_at > ?
+        RETURNING user_id
+        "#,
+    )
+    .bind(ticket.trim())
+    .bind(Utc::now())
+    .fetch_optional(pool)
+    .await?
+    else {
         return Err(AppError::Unauthorized);
     };
-    if expires_at <= Utc::now() {
-        return Err(AppError::Unauthorized);
-    }
     get_user_by_id(pool, parse_uuid(&user_id)?).await
+}
+
+pub async fn cleanup_expired_websocket_tickets(pool: &DbPool) -> AppResult<u64> {
+    let result = sqlx::query("DELETE FROM websocket_tickets WHERE expires_at <= ?")
+        .bind(Utc::now())
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
 }
 
 pub async fn update_account(

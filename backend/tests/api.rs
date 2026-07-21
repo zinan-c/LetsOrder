@@ -3,7 +3,10 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
-use letsorder_backend::{db, routes, services::gathering_service};
+use letsorder_backend::{
+    db, routes,
+    services::{auth_service, gathering_service},
+};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tower::ServiceExt;
@@ -882,4 +885,24 @@ async fn login_attempts_are_rate_limited_per_username() {
     )
     .await;
     assert_eq!(blocked_status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn websocket_ticket_is_consumed_once() {
+    let (app, pool) = test_app().await;
+    let admin_token = login_admin(&app).await;
+    let ticket = auth_service::create_websocket_ticket(&pool, &admin_token)
+        .await
+        .expect("ticket should be created");
+
+    let (first, second) = tokio::join!(
+        auth_service::consume_websocket_ticket(&pool, &ticket),
+        auth_service::consume_websocket_ticket(&pool, &ticket),
+    );
+    assert_eq!(first.is_ok() as u8 + second.is_ok() as u8, 1);
+    assert!(
+        auth_service::consume_websocket_ticket(&pool, &ticket)
+            .await
+            .is_err()
+    );
 }

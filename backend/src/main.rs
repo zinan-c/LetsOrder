@@ -63,6 +63,11 @@ fn spawn_expired_gathering_lock_job(
                     tracing::warn!(error = %error, "failed to auto lock expired gatherings");
                 }
             }
+            if let Err(error) =
+                services::auth_service::cleanup_expired_websocket_tickets(&pool).await
+            {
+                tracing::warn!(error = %error, "failed to clean up websocket tickets");
+            }
         }
     });
 }

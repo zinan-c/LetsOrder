@@ -250,3 +250,10 @@ values, applies username-based temporary login throttling, and upgrades legacy
 password hashes to Argon2 after successful login. A focused rate-limit API test
 is included; a production startup test and legacy-hash migration assertion are
 still candidates for the broader test pass.
+
+### WebSocket ticket consumption — implemented, pending local commit
+
+Ticket consumption now uses SQLite `DELETE ... RETURNING` with an expiry guard,
+so only one concurrent consumer can succeed. The ten-minute background job also
+removes expired unconsumed tickets, and an integration test verifies concurrent
+single-use behavior.
