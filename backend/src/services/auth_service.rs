@@ -63,6 +63,15 @@ pub async fn login(pool: &DbPool, payload: LoginRequest) -> AppResult<AuthRespon
         return Err(AppError::Forbidden);
     }
 
+    if !password_hash.starts_with("$argon2") {
+        sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+            .bind(hash_password(&payload.password))
+            .bind(Utc::now())
+            .bind(user_id.to_string())
+            .execute(pool)
+            .await?;
+    }
+
     let token = create_session(pool, user_id).await?;
     let user = get_user_by_id(pool, user_id).await?;
 

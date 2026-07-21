@@ -13,6 +13,8 @@ pub enum AppError {
     Unauthorized,
     #[error("request is not allowed")]
     Forbidden,
+    #[error("too many login attempts; try again later")]
+    RateLimited,
     #[error("validation failed: {0}")]
     Validation(String),
     #[error("conflict")]
@@ -32,6 +34,7 @@ impl IntoResponse for AppError {
             AppError::NotFound => StatusCode::NOT_FOUND,
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Forbidden => StatusCode::FORBIDDEN,
+            AppError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             AppError::Validation(_) => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,

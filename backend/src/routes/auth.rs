@@ -30,7 +30,22 @@ async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let response = auth_service::login(&state.pool, payload).await?;
+    let key = payload.username.trim().to_lowercase();
+    if state.login_limiter.is_blocked(&key) {
+        return Err(AppError::RateLimited);
+    }
+
+    let response = match auth_service::login(&state.pool, payload).await {
+        Ok(response) => {
+            state.login_limiter.clear(&key);
+            response
+        }
+        Err(AppError::Forbidden) => {
+            state.login_limiter.record_failure(&key);
+            return Err(AppError::Forbidden);
+        }
+        Err(error) => return Err(error),
+    };
     Ok(Json(serde_json::json!(response)))
 }
 

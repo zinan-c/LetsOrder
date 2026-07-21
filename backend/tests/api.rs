@@ -857,3 +857,29 @@ async fn host_claim_is_single_use_and_bound_to_authenticated_user() {
     .await;
     assert_eq!(lock_status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn login_attempts_are_rate_limited_per_username() {
+    let (app, _) = test_app().await;
+    for _ in 0..5 {
+        let (status, _) = request_json(
+            &app,
+            Method::POST,
+            "/api/auth/login",
+            None,
+            json!({ "username": "rate-limit-user", "password": "wrong" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    let (blocked_status, _) = request_json(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        json!({ "username": "rate-limit-user", "password": "wrong" }),
+    )
+    .await;
+    assert_eq!(blocked_status, StatusCode::TOO_MANY_REQUESTS);
+}

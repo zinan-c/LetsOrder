@@ -241,3 +241,12 @@ participant, the claim atomically upgrades that participant and consumes the
 unbound Host record without transferring the role by display name. Reuse and
 same-name impersonation are rejected. Frontend Host claim URLs use a URL
 fragment so the token is not sent as an HTTP request parameter.
+
+### Administrator authentication — implemented, pending local commit
+
+Production startup now requires `LETSORDER_ADMIN_PASSWORD` through
+`LETSORDER_ENV=production`, rejects the known development password and short
+values, applies username-based temporary login throttling, and upgrades legacy
+password hashes to Argon2 after successful login. A focused rate-limit API test
+is included; a production startup test and legacy-hash migration assertion are
+still candidates for the broader test pass.

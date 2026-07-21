@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config = config::Config::from_env();
+    let config = config::Config::from_env()?;
     let pool = db::connect(&config.database_url).await?;
     let (realtime_tx, _) = broadcast::channel(128);
     spawn_expired_gathering_lock_job(pool.clone(), realtime_tx.clone());
